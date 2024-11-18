@@ -1,7 +1,7 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::{Color, PixelFormatEnum};
-use sdl2::rect::Rect;
+use sdl2::rect::{Point, Rect};
 use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::{Window, WindowContext};
@@ -25,7 +25,8 @@ fn main() -> Result<(), String> {
     car.set_scale(0.5);
 
     let mut event_pump = sdl_context.event_pump()?;
-    let target_frame_time = Duration::from_millis(1000 / 60);
+	let target_fps = 60;
+    let target_frame_time = Duration::from_millis(1000 / target_fps);
     'running: loop {
         let frame_start = Instant::now();
 
@@ -38,40 +39,41 @@ fn main() -> Result<(), String> {
                 } => {
                     break 'running;
                 }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Up),
-                    ..
-                } => {
-                    if car.velocity < car.max_velocity / 2.0 {
-						car.acceleration = 0.33;
-					} else {
-						car.acceleration = 0.5;
-					}
-                }
-                Event::KeyUp {
-                    keycode: Some(Keycode::Up),
-                    ..
-                } => {
-                    car.acceleration = 0.0;
-                }
-                Event::KeyDown {
-                    keycode: Some(Keycode::Down),
-                    ..
-                } => {
-					if car.velocity < car.max_velocity / 2.0 {
-						car.acceleration = -0.45;
-					} else {
-						car.acceleration = -0.33;
-					}
-                }
-				Event::KeyUp {
-					keycode: Some(Keycode::Down),
-					..
-				} => {
-					car.acceleration = 0.0;
-				}
+				// Event::KeyDown {
+                //     keycode: Some(Keycode::Up),
+                //     ..
+                // } => {
+                //     if car.velocity < car.max_velocity / 2.0 {
+				// 		car.acceleration = 0.33;
+				// 	} else {
+				// 		car.acceleration = 0.5;
+				// 	}
+                // }
+                // Event::KeyUp {
+                //     keycode: Some(Keycode::Up),
+                //     ..
+                // } => {
+                //     car.acceleration = 0.0;
+                // }
+                // Event::KeyDown {
+                //     keycode: Some(Keycode::Down),
+                //     ..
+                // } => {
+				// 	if car.velocity < car.max_velocity / 2.0 {
+				// 		car.acceleration = -0.45;
+				// 	} else {
+				// 		car.acceleration = -0.33;
+				// 	}
+                // }
+				// Event::KeyUp {
+				// 	keycode: Some(Keycode::Down),
+				// 	..
+				// } => {
+				// 	car.acceleration = 0.0;
+				// }
                 _ => {}
             }
+			car.update_state(&event);
         }
 		car.update_position();
 
@@ -96,11 +98,17 @@ pub struct Car<'a> {
     height: u32,
     x: i32,
     y: i32,
+	angle: f32,
+    scale: f32,
     velocity: f32,
     max_velocity: f32,
     acceleration: f32,
+	friction: f32,
+	forward: bool,
+	backward: bool,
+	left: bool,
+	right: bool,
     texture: Texture<'a>,
-    scale: f32,
     src_rect: Option<Rect>,
 }
 
@@ -133,9 +141,15 @@ impl<'a> Car<'a> {
             scale: 1.0,
             x: 420,
             y: 500,
+			angle: 0.0,
             velocity: 0.0,
             max_velocity: 10.0,
-            acceleration: 0.0,
+            acceleration: 0.4,
+			friction: 0.08,
+			forward: false,
+			backward: false,
+			left: false,
+			right: false,
             width,
             height,
             texture,
@@ -163,28 +177,112 @@ impl<'a> Car<'a> {
         let scaled_w = (w as f32 * self.scale) as u32;
         let scaled_h = (h as f32 * self.scale) as u32;
         let dst_rect = Rect::new(self.x, self.y, scaled_w, scaled_h);
-        canvas.copy(&self.texture, self.src_rect, dst_rect)
+
+		let center = Point::new((scaled_w / 2) as i32, (scaled_h / 2) as i32);
+
+        canvas.copy_ex(&self.texture, self.src_rect, Some(dst_rect), self.angle as f64, Some(center), false, false)
+		// canvas.copy(&self.texture, self.src_rect, dst_rect)
     }
 
     pub fn update_position(&mut self) {
-        self.velocity += self.acceleration;
+		if self.forward {
+			if self.velocity < self.max_velocity / 2.0 {
+				self.velocity += self.acceleration / 1.6 ;
+			} else {
+				self.velocity += self.acceleration;
+			}
+		}
+		if self.backward {
+			if self.velocity < self.max_velocity / 2.0 {
+				self.velocity -= self.acceleration / 1.6;
+			} else {
+				self.velocity -= self.acceleration;
+			}
+		}
+		if self.left {
+			self.angle -= 1.0 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+		}
+		if self.right {
+			self.angle += 1.0 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+		}
+		
+		self.angle %= 360.0;
+
+		if self.angle < 0.0 {
+			self.angle += 360.0;
+		}
 
         if self.velocity > self.max_velocity {
             self.velocity = self.max_velocity;
-        } else if self.velocity < -self.max_velocity {
-            self.velocity = -self.max_velocity;
-		} else if self.acceleration == 0.0 {
-			if self.velocity > -1.9 && self.velocity < 1.9 {
-				self.velocity = 0.0;
-			} else {
-				self.velocity *= 0.991;
-			}
+        } else if self.velocity < -self.max_velocity / 2.0 {
+            self.velocity = -self.max_velocity / 2.0;
 		}
 
-        self.y -= (self.velocity * 0.5) as i32;
+		if self.velocity > 0.0 {
+			self.velocity -= self.friction;
+		} else if self.velocity < 0.0 {
+			self.velocity += self.friction;
+		}
+		if self.velocity.abs() < self.friction {
+			self.velocity = 0.0;
+		}
 
-        // if self.y < 0 {
-
-        // }
+		self.x += (self.angle.to_radians().sin() * self.velocity) as i32;
+		self.y -= (self.angle.to_radians().cos() * self.velocity) as i32;
+		// println!("vel: {}, x: {}, y: {}, angle: {}", self.velocity, self.x, self.y, self.angle);
     }
+
+	pub fn update_state(&mut self, event: &Event) {
+		match event {
+			Event::KeyDown {
+				keycode: Some(Keycode::Left),
+				..
+			} => {
+				self.left = true;
+			}
+			Event::KeyUp {
+				keycode: Some(Keycode::Left),
+				..
+			} => {
+				self.left = false;
+			}
+			Event::KeyDown {
+				keycode: Some(Keycode::Right),
+				..
+			} => {
+				self.right = true;
+			}
+			Event::KeyUp {
+				keycode: Some(Keycode::Right),
+				..
+			} => {
+				self.right = false;
+			}
+			Event::KeyDown {
+				keycode: Some(Keycode::Up),
+				..
+			} => {
+				self.forward = true;
+			}
+			Event::KeyUp {
+				keycode: Some(Keycode::Up),
+				..
+			} => {
+				self.forward = false;
+			}
+			Event::KeyDown {
+				keycode: Some(Keycode::Down),
+				..
+			} => {
+				self.backward = true;
+			}
+			Event::KeyUp {
+				keycode: Some(Keycode::Down),
+				..
+			} => {
+				self.backward = false;
+			}
+			_ => {}
+		}
+	}
 }
