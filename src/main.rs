@@ -5,6 +5,7 @@ use sdl2::rect::Rect;
 use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::{Window, WindowContext};
+use std::time::{Duration, Instant};
 
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
@@ -21,10 +22,13 @@ fn main() -> Result<(), String> {
     let mut car = Car::try_new("assets/car.png", &texture_creator)?;
 
     car.src_crop_center(200, 380);
-    car.set_scale(0.3);
+    car.set_scale(0.5);
 
     let mut event_pump = sdl_context.event_pump()?;
+    let target_frame_time = Duration::from_millis(1000 / 60);
     'running: loop {
+        let frame_start = Instant::now();
+
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit { .. }
@@ -35,32 +39,41 @@ fn main() -> Result<(), String> {
                     break 'running;
                 }
                 Event::KeyDown {
-                    keycode: Some(Keycode::Down),
-                    ..
-                } => {
-					car.y += 2;
-				}
-				Event::KeyDown {
-                    keycode: Some(Keycode::Right),
-                    ..
-                } => {
-					car.x += 2;
-				}
-				Event::KeyDown {
                     keycode: Some(Keycode::Up),
                     ..
                 } => {
-					car.y -= 2;
-				}
-				Event::KeyDown {
-                    keycode: Some(Keycode::Left),
+                    if car.velocity < car.max_velocity / 2.0 {
+						car.acceleration = 0.33;
+					} else {
+						car.acceleration = 0.5;
+					}
+                }
+                Event::KeyUp {
+                    keycode: Some(Keycode::Up),
                     ..
                 } => {
-					car.x -= 2;
+                    car.acceleration = 0.0;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::Down),
+                    ..
+                } => {
+					if car.velocity < car.max_velocity / 2.0 {
+						car.acceleration = -0.45;
+					} else {
+						car.acceleration = -0.33;
+					}
+                }
+				Event::KeyUp {
+					keycode: Some(Keycode::Down),
+					..
+				} => {
+					car.acceleration = 0.0;
 				}
                 _ => {}
             }
         }
+		car.update_position();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
@@ -68,6 +81,11 @@ fn main() -> Result<(), String> {
         car.render(&mut canvas)?;
 
         canvas.present();
+
+        let frame_duration = frame_start.elapsed();
+        if frame_duration < target_frame_time {
+            std::thread::sleep(target_frame_time - frame_duration);
+        }
     }
 
     Ok(())
@@ -78,6 +96,9 @@ pub struct Car<'a> {
     height: u32,
     x: i32,
     y: i32,
+    velocity: f32,
+    max_velocity: f32,
+    acceleration: f32,
     texture: Texture<'a>,
     scale: f32,
     src_rect: Option<Rect>,
@@ -110,8 +131,11 @@ impl<'a> Car<'a> {
         Ok(Car {
             src_rect: None,
             scale: 1.0,
-            x: 0,
-            y: 0,
+            x: 420,
+            y: 500,
+            velocity: 0.0,
+            max_velocity: 10.0,
+            acceleration: 0.0,
             width,
             height,
             texture,
@@ -140,5 +164,27 @@ impl<'a> Car<'a> {
         let scaled_h = (h as f32 * self.scale) as u32;
         let dst_rect = Rect::new(self.x, self.y, scaled_w, scaled_h);
         canvas.copy(&self.texture, self.src_rect, dst_rect)
+    }
+
+    pub fn update_position(&mut self) {
+        self.velocity += self.acceleration;
+
+        if self.velocity > self.max_velocity {
+            self.velocity = self.max_velocity;
+        } else if self.velocity < -self.max_velocity {
+            self.velocity = -self.max_velocity;
+		} else if self.acceleration == 0.0 {
+			if self.velocity > -1.9 && self.velocity < 1.9 {
+				self.velocity = 0.0;
+			} else {
+				self.velocity *= 0.991;
+			}
+		}
+
+        self.y -= (self.velocity * 0.5) as i32;
+
+        // if self.y < 0 {
+
+        // }
     }
 }
