@@ -199,12 +199,6 @@ impl<'a> Car<'a> {
 				self.velocity -= self.acceleration;
 			}
 		}
-		if self.left {
-			self.angle -= 1.0 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
-		}
-		if self.right {
-			self.angle += 1.0 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
-		}
 		
 		self.angle %= 360.0;
 
@@ -227,9 +221,17 @@ impl<'a> Car<'a> {
 			self.velocity = 0.0;
 		}
 
+		if self.velocity != 0.0 {
+			if self.left {
+				self.angle -= 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+			}
+			if self.right {
+				self.angle += 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+			}
+		}
+
 		self.x += (self.angle.to_radians().sin() * self.velocity) as i32;
 		self.y -= (self.angle.to_radians().cos() * self.velocity) as i32;
-		// println!("vel: {}, x: {}, y: {}, angle: {}", self.velocity, self.x, self.y, self.angle);
     }
 
 	pub fn update_state(&mut self, event: &Event) {
