@@ -1,7 +1,7 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
-use sdl2::rect::{FRect, Point, Rect};
+use sdl2::rect::{FPoint, FRect, Point, Rect};
 use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::{Window, WindowContext};
@@ -85,15 +85,15 @@ impl<'a> Car<'a> {
     }
 
     pub fn render(&mut self, canvas: &mut Canvas<Window>) -> Result<(), String> {
-        let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width);
-        let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height);
-        let scaled_w = (w as f32 * self.scale) as u32;
-        let scaled_h = (h as f32 * self.scale) as u32;
-        let dst_rect = FRect::new(self.x as f32, self.y as f32, scaled_w, scaled_h);
+        let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
+        let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
+        let scaled_w = w * self.scale;
+        let scaled_h = h * self.scale;
+        let dst_rect = FRect::new(self.x, self.y as f32, scaled_w, scaled_h);
 
-		let center = Point::new((scaled_w / 2) as i32, (scaled_h / 2) as i32);
+		let center = FPoint::new(scaled_w / 2.0, scaled_h / 2.0);
 
-        canvas.copy_ex(&self.texture, self.src_rect, Some(dst_rect), self.angle as f64, Some(center), false, false)
+        canvas.copy_ex_f(&self.texture, self.src_rect, Some(dst_rect), self.angle as f64, Some(center), false, false)
 		// canvas.copy(&self.texture, self.src_rect, dst_rect)
     }
 
@@ -107,9 +107,9 @@ impl<'a> Car<'a> {
 		}
 		if self.backward {
 			if self.velocity < self.max_velocity / 2.0 {
-				self.velocity -= self.acceleration / 1.6;
+				self.velocity -= self.acceleration / 2.0;
 			} else {
-				self.velocity -= self.acceleration;
+				self.velocity -= self.acceleration / 1.4;
 			}
 		}
 		
@@ -136,15 +136,15 @@ impl<'a> Car<'a> {
 
 		if self.velocity != 0.0 {
 			if self.left {
-				self.angle -= 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+				self.angle -= 1.5 * (self.velocity / 100.0) * if self.velocity > 0.0 { 1.0 } else { -1.0 };
 			}
 			if self.right {
 				self.angle += 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
 			}
 		}
 
-		self.x += (self.angle.to_radians().sin() * self.velocity) as i32;
-		self.y -= (self.angle.to_radians().cos() * self.velocity) as i32;
+		self.x += self.angle.to_radians().sin() * self.velocity;
+		self.y -= self.angle.to_radians().cos() * self.velocity;
     }
 
 	pub fn update_state(&mut self, event: &Event) {
