@@ -40,8 +40,28 @@ impl Road {
 
 		for i in 0..self.lanes {
 			let x = fns::lerp(self.left, self.right, i as f32 / self.lanes as f32);
-			canvas.fill_rect(Rect::new(x as i32, -INFINITY / 2, 5, INFINITY as u32)).map_err(|e| e.to_string())?;
+			let dashes = Road::dashed_line_vertical(x as i32, -INFINITY / 2, 5, INFINITY as u32, 40, 40);
+			for dash in dashes {
+				canvas.fill_rect(dash).map_err(|e| e.to_string())?;
+			}
+			// canvas.fill_rect(Rect::new(x as i32, -INFINITY / 2, 5, INFINITY as u32)).map_err(|e| e.to_string())?;
 		}
 		Ok(())
+	}
+
+	fn dashed_line_vertical(x: i32, y: i32, width: u32, height: u32, length: u32, gap: u32) -> Vec<Rect> {
+		let mut rects = Vec::new();
+		let size = length + gap;
+		for i in 0..height / size {
+			rects.push(
+				Rect::new(
+					x,
+					y + i as i32 * size as i32,
+					width,
+					length,
+				),
+			)
+		}
+		rects
 	}
 }
