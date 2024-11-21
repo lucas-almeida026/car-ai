@@ -136,7 +136,7 @@ impl<'a> Car<'a> {
 
 		if self.velocity != 0.0 {
 			if self.left {
-				self.angle -= 1.5 * (self.velocity / 100.0) * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+				self.angle -= 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
 			}
 			if self.right {
 				self.angle += 1.5 * if self.velocity > 0.0 { 1.0 } else { -1.0 };

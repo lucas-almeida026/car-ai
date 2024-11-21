@@ -1,3 +1,5 @@
+use crate::fns;
+
 use sdl2::pixels::Color;
 use sdl2::rect::{Point, Rect};
 use sdl2::render::Canvas;
@@ -20,8 +22,8 @@ impl Road {
 			x,
 			width,
 			lanes,
-			left: (width as f32) / 2.0,
-			right: (width as f32) / 2.0,
+			left: (x - width / 2) as f32,
+			right: (x + width / 2) as f32,
 			top: -INFINITY,
 			bottom: INFINITY,
 		}
@@ -29,20 +31,17 @@ impl Road {
 
 	pub fn render(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
 		canvas.set_draw_color(Color::RGB(255, 255, 255));
-		// canvas.draw_line(
-		// 	Point::new(self.x, self.top),
-		// 	Point::new(self.x + self.width, self.top),
-		// ).map_err(|e| e.to_string())?;
-		// canvas.draw_line(
-		// 	Point::new(self.x, self.bottom),
-		// 	Point::new(self.x + self.width, self.bottom),
-		// ).map_err(|e| e.to_string())?;
 		let (left, right) = (
 			self.x - (self.width / 2) as i32,
 			self.x + (self.width / 2) as i32,
 		);
 		canvas.fill_rect(Rect::new(left, -INFINITY / 2, 5, INFINITY as u32)).map_err(|e| e.to_string())?;
 		canvas.fill_rect(Rect::new(right, -INFINITY / 2, 5, INFINITY as u32)).map_err(|e| e.to_string())?;
+
+		for i in 0..self.lanes {
+			let x = fns::lerp(self.left, self.right, i as f32 / self.lanes as f32);
+			canvas.fill_rect(Rect::new(x as i32, -INFINITY / 2, 5, INFINITY as u32)).map_err(|e| e.to_string())?;
+		}
 		Ok(())
 	}
 }

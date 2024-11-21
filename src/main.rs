@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 mod car;
 mod road;
+mod fns;
 use car::Car;
 use road::Road;
 
@@ -23,7 +24,7 @@ fn main() -> Result<(), String> {
     let texture_creator = canvas.texture_creator();
 
     let mut car = Car::try_new("assets/car.png", &texture_creator)?;
-	let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.75) as i32, 3);
+	let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.5) as i32, 3);
 
     car.src_crop_center(200, 380);
     car.set_scale(0.35);
