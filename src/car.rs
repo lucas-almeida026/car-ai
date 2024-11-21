@@ -9,8 +9,8 @@ use sdl2::video::{Window, WindowContext};
 pub struct Car<'a> {
     width: u32,
     height: u32,
-    x: f32,
-    y: f32,
+    pub x: f32,
+    pub y: f32,
 	angle: f32,
     scale: f32,
     velocity: f32,
@@ -50,11 +50,12 @@ impl<'a> Car<'a> {
         texture.set_blend_mode(BlendMode::Blend);
 
         Ok(Car {
-            src_rect: None,
-            scale: 1.0,
-            x: 420.0,
-            y: 500.0,
+            width,
+            height,
+            x: 400.0,
+            y: 600.0,
 			angle: 0.0,
+            scale: 1.0,
             velocity: 0.0,
             max_velocity: 10.0,
             acceleration: 0.4,
@@ -63,9 +64,8 @@ impl<'a> Car<'a> {
 			backward: false,
 			left: false,
 			right: false,
-            width,
-            height,
             texture,
+            src_rect: None,
         })
     }
 
@@ -84,14 +84,14 @@ impl<'a> Car<'a> {
         }
     }
 
-    pub fn render(&mut self, canvas: &mut Canvas<Window>) -> Result<(), String> {
+    pub fn render(&mut self, canvas: &mut Canvas<Window>, offset: f32) -> Result<(), String> {
         let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
         let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
         let scaled_w = w * self.scale;
         let scaled_h = h * self.scale;
 
 		let center_x = self.x + scaled_w / 2.0;
-		let center_y = self.y + scaled_h / 2.0;
+		let center_y = (self.y - offset) + scaled_h / 2.0;
 
 		let points = [
 			(-scaled_w / 2.0, -scaled_h / 2.0),
@@ -107,7 +107,7 @@ impl<'a> Car<'a> {
 			Point::new((rx + center_x) as i32, (ry + center_y) as i32)
 		}).collect();
 
-        let dst_rect = FRect::new(self.x, self.y as f32, scaled_w, scaled_h);
+        let dst_rect = FRect::new(self.x, self.y as f32 - offset, scaled_w, scaled_h);
 
 		let center = FPoint::new(scaled_w / 2.0, scaled_h / 2.0);
 
@@ -119,6 +119,10 @@ impl<'a> Car<'a> {
         canvas.copy_ex_f(&self.texture, self.src_rect, Some(dst_rect), self.angle as f64, Some(center), false, false)
 		// canvas.copy(&self.texture, self.src_rect, dst_rect)
     }
+
+	pub fn scaled_width(&self) -> f32 {
+		self.width as f32 * self.scale
+	}
 
     pub fn update_position(&mut self) {
 		if self.forward {
