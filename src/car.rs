@@ -1,6 +1,6 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::PixelFormatEnum;
+use sdl2::pixels::{PixelFormatEnum, Color};
 use sdl2::rect::{FPoint, FRect, Point, Rect};
 use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
@@ -89,10 +89,33 @@ impl<'a> Car<'a> {
         let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
         let scaled_w = w * self.scale;
         let scaled_h = h * self.scale;
+
+		let center_x = self.x + scaled_w / 2.0;
+		let center_y = self.y + scaled_h / 2.0;
+
+		let points = [
+			(-scaled_w / 2.0, -scaled_h / 2.0),
+			(scaled_w / 2.0, -scaled_h / 2.0),
+			(scaled_w / 2.0, scaled_h / 2.0),
+			(-scaled_w / 2.0, scaled_h / 2.0),
+		];
+
+		let angle_rad = self.angle.to_radians();
+		let rotated_points: Vec<Point> = points.iter().map(|&(px, py)| {
+			let rx = px * angle_rad.cos() - py * angle_rad.sin();
+			let ry = px * angle_rad.sin() + py * angle_rad.cos();
+			Point::new((rx + center_x) as i32, (ry + center_y) as i32)
+		}).collect();
+
         let dst_rect = FRect::new(self.x, self.y as f32, scaled_w, scaled_h);
 
 		let center = FPoint::new(scaled_w / 2.0, scaled_h / 2.0);
 
+		canvas.set_draw_color(Color::RGB(250, 240, 90));
+		for (i, point) in rotated_points.iter().enumerate() {
+			let end = rotated_points[(i + 1) % rotated_points.len()];
+			canvas.draw_line(*point, end).map_err(|e| e.to_string())?	
+		};
         canvas.copy_ex_f(&self.texture, self.src_rect, Some(dst_rect), self.angle as f64, Some(center), false, false)
 		// canvas.copy(&self.texture, self.src_rect, dst_rect)
     }
