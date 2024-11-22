@@ -8,8 +8,10 @@ use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::{Window, WindowContext};
 
+use crate::fns::get_intersectionf;
 use crate::road::Border;
 use crate::sensor::Sensor;
+type Polygon = Vec<FPoint>;
 
 pub struct Car<'a> {
     width: u32,
@@ -27,6 +29,7 @@ pub struct Car<'a> {
     backward: bool,
     left: bool,
     right: bool,
+    damaged: bool,
     texture: Texture<'a>,
     src_rect: Option<Rect>,
 }
@@ -70,6 +73,7 @@ impl<'a> Car<'a> {
             backward: false,
             left: false,
             right: false,
+            damaged: false,
             texture,
             src_rect: None,
             sensors: vec![Sensor::new(3, 220.0, PI / 4.0)],
@@ -95,13 +99,22 @@ impl<'a> Car<'a> {
         }
     }
 
-    pub fn render(&mut self, canvas: &mut Canvas<Window>, offset: f32, borders: &Vec<Border>) -> Result<(), String> {
+    pub fn render(
+        &mut self,
+        canvas: &mut Canvas<Window>,
+        offset: f32,
+        borders: &Vec<Border>,
+    ) -> Result<(), String> {
         // render texture
         let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
         let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
 
         let scaled_w = w * self.scale;
         let scaled_h = h * self.scale;
+
+		if self.damaged {
+			self.color_filter();
+		}
 
         let dst_rect = FRect::new(self.x, self.y as f32 - offset, scaled_w, scaled_h);
 
@@ -116,11 +129,29 @@ impl<'a> Car<'a> {
         )?;
 
         // render hitbox
+        let side_y = scaled_h * 0.6;
+        let side_w = scaled_w * 0.1;
+
+        let front_y = scaled_h * 0.2;
+        let front_w = scaled_w * 0.2;
+
+        let corner_y = scaled_h * 0.04;
+        let corner_w = scaled_w * 0.6;
+
+        let back_y = scaled_h * 0.3;
+        let back_w = scaled_w * 0.55;
+
         let points = [
-            (-scaled_w / 2.0, -scaled_h / 2.0),
-            (scaled_w / 2.0, -scaled_h / 2.0),
-            (scaled_w / 2.0, scaled_h / 2.0),
-            (-scaled_w / 2.0, scaled_h / 2.0),
+            (-(scaled_w - side_w) / 2.0, -(scaled_h - side_y) / 2.0),
+            (-(scaled_w - front_w) / 2.0, -(scaled_h - front_y) / 2.0),
+            (-(scaled_w - corner_w) / 2.0, -(scaled_h - corner_y) / 2.0),
+            ((scaled_w - corner_w) / 2.0, -(scaled_h - corner_y) / 2.0),
+            ((scaled_w - front_w) / 2.0, -(scaled_h - front_y) / 2.0),
+            ((scaled_w - side_w) / 2.0, -(scaled_h - side_y) / 2.0),
+            ((scaled_w - side_w) / 2.0, (scaled_h - back_y) / 2.0),
+            ((scaled_w - back_w) / 2.0, (scaled_h - side_w) / 2.0),
+            (-(scaled_w - back_w) / 2.0, (scaled_h - side_w) / 2.0),
+            (-(scaled_w - side_w) / 2.0, (scaled_h - back_y) / 2.0),
         ];
 
         let center_x = self.x + scaled_w / 2.0;
@@ -136,11 +167,37 @@ impl<'a> Car<'a> {
             })
             .collect();
 
-        canvas.set_draw_color(Color::RGB(250, 240, 90));
-        for (i, point) in rotated_points.iter().enumerate() {
-            let end = rotated_points[(i + 1) % rotated_points.len()];
-            canvas.draw_line(*point, end).map_err(|e| e.to_string())?
-        }
+		for i in 0..rotated_points.len() {
+			let a = rotated_points[i];
+			let b = rotated_points[(i + 1) % rotated_points.len()];
+			let mut touches: Vec<(Point, f32)> = Vec::new();
+			canvas.draw_line(a, b)?;
+			for border in borders.iter() {
+				let touch = get_intersectionf(
+					a.x as f32,
+					a.y as f32,
+					b.x as f32,
+					b.y as f32,
+					border.start.x as f32,
+					border.start.y as f32,
+					border.end.x as f32,
+					border.end.y as f32,
+				);
+				if let Some((p, t)) = touch {
+					touches.push((Point::new(p.x as i32, p.y as i32), t));
+				}
+			}
+
+			if touches.len() > 0 {
+				self.damaged = true;
+				canvas.set_draw_color(Color::RGB(255, 12, 255));
+			} else {
+				canvas.set_draw_color(Color::RGB(12, 0, 255));
+			}
+	
+			
+			canvas.draw_line(a, b)?;
+		}
 
         for sensor in self.sensors.iter_mut() {
             sensor
@@ -151,12 +208,16 @@ impl<'a> Car<'a> {
                     scaled_w,
                     scaled_h,
                     self.angle,
-					&borders
+                    &borders,
                 )
                 .map_err(|e| e.to_string())?
         }
         Ok(())
     }
+
+	fn color_filter(&mut self) {
+		self.texture.set_color_mod(64, 64, 64);
+	}
 
     pub fn scaled_width(&self) -> f32 {
         self.width as f32 * self.scale
@@ -167,6 +228,10 @@ impl<'a> Car<'a> {
     }
 
     pub fn update_position(&mut self) {
+		if self.damaged {
+			self.velocity = 0.0;
+			return;
+		}
         if self.forward {
             if self.velocity < self.max_velocity / 2.0 {
                 self.velocity += self.acceleration / 1.6;
@@ -217,6 +282,9 @@ impl<'a> Car<'a> {
     }
 
     pub fn update_state(&mut self, event: &Event) {
+		if self.damaged {
+			return
+		}
         match event {
             Event::KeyDown {
                 keycode: Some(Keycode::Left),

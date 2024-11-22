@@ -18,7 +18,7 @@ fn main() -> Result<(), String> {
     let w_height = 800;
     let window = video_subsystem
         .window("AI Car", w_width, w_height)
-        .position_centered()
+        .position(100, 100)
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -28,7 +28,7 @@ fn main() -> Result<(), String> {
     let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.33) as i32, 3);
     let mut car = Car::try_new("assets/car.png", &texture_creator)?;
 
-    car.src_crop_center(200, 380);
+    car.src_crop_center(194, 380);
     car.set_scale(0.3);
     car.x = road
         .lane_center(1)
