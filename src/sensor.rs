@@ -1,4 +1,5 @@
-use crate::fns::lerpf64;
+use crate::fns::{get_intersectionf, lerpf64};
+use crate::road::Border;
 use sdl2::pixels::Color;
 use sdl2::rect::FPoint;
 use sdl2::render::Canvas;
@@ -35,15 +36,14 @@ impl Sensor {
         w: f32,
         h: f32,
         angle: f64,
+        borders: &Vec<Border>,
     ) -> Result<(), String> {
-        canvas.set_draw_color(Color::RGB(255, 50, 16));
         for ray in self.rays.iter() {
-            ray.render(canvas, x, y, w, h, angle)?;
+            ray.render(canvas, x, y, w, h, angle, &borders)?;
         }
         Ok(())
     }
 }
-
 
 pub struct Ray {
     pub length: f32,
@@ -62,6 +62,7 @@ impl Ray {
         w: f32,
         h: f32,
         angle: f64,
+        borders: &Vec<Border>,
     ) -> Result<(), String> {
         let center_x = x + w / 2.0;
         let center_y = y + h / 2.0;
@@ -70,6 +71,37 @@ impl Ray {
             center_x - self.length * (self.angle - angle.to_radians()).sin() as f32,
             center_y - self.length * (self.angle - angle.to_radians()).cos() as f32,
         );
-        canvas.draw_fline(start, end)
+        let mut touches: Vec<(FPoint, f32)> = Vec::new();
+        for border in borders.iter() {
+            let touch = get_intersectionf(
+                start.x,
+                start.y,
+                end.x,
+                end.y,
+                border.start.x as f32,
+                border.start.y as f32,
+                border.end.x as f32,
+                border.end.y as f32,
+            );
+            if let Some(t) = touch {
+                touches.push(t);
+            }
+        }
+
+        let mut closest = end;
+        if touches.len() > 0 {
+            touches.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            closest = touches[0].0;
+        }
+
+        canvas.set_draw_color(Color::RGB(32, 232, 32));
+        canvas.draw_fline(start, closest)?;
+
+        if touches.len() > 0 {
+			canvas.set_draw_color(Color::RGB(255, 32, 64));
+			canvas.draw_fline(closest, end)?;
+		}
+
+        Ok(())
     }
 }

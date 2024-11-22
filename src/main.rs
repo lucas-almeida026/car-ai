@@ -74,7 +74,7 @@ fn main() -> Result<(), String> {
         let camera_y_offset = car.y - (w_height as f32 * 0.7);
 
         road.render(&mut canvas, camera_y_offset)?;
-        car.render(&mut canvas, camera_y_offset)?;
+        car.render(&mut canvas, camera_y_offset, &road.borders)?;
 		// sensor.render(&mut canvas, camera_y_offset)?;
 
         canvas.present();

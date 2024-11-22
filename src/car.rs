@@ -8,6 +8,7 @@ use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::surface::Surface;
 use sdl2::video::{Window, WindowContext};
 
+use crate::road::Border;
 use crate::sensor::Sensor;
 
 pub struct Car<'a> {
@@ -71,7 +72,7 @@ impl<'a> Car<'a> {
             right: false,
             texture,
             src_rect: None,
-            sensors: vec![Sensor::new(11, 220.0, PI / 3.0)],
+            sensors: vec![Sensor::new(3, 220.0, PI / 4.0)],
         })
     }
 
@@ -94,7 +95,7 @@ impl<'a> Car<'a> {
         }
     }
 
-    pub fn render(&mut self, canvas: &mut Canvas<Window>, offset: f32) -> Result<(), String> {
+    pub fn render(&mut self, canvas: &mut Canvas<Window>, offset: f32, borders: &Vec<Border>) -> Result<(), String> {
         // render texture
         let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
         let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
@@ -150,6 +151,7 @@ impl<'a> Car<'a> {
                     scaled_w,
                     scaled_h,
                     self.angle,
+					&borders
                 )
                 .map_err(|e| e.to_string())?
         }

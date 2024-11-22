@@ -1,7 +1,7 @@
 use crate::fns;
 
 use sdl2::pixels::Color;
-use sdl2::rect::{Point, Rect};
+use sdl2::rect::{FPoint, Point, Rect};
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 
@@ -14,7 +14,7 @@ pub struct Road {
     right: f32,
     top: i32,
     bottom: i32,
-    borders: Vec<Border>,
+    pub borders: Vec<Border>,
 }
 
 impl Road {
@@ -103,8 +103,8 @@ impl Road {
 }
 
 pub struct Border {
-    start: Point,
-    end: Point,
+    pub start: Point,
+    pub end: Point,
 }
 impl Border {
     pub fn new(start: Point, end: Point) -> Self {
