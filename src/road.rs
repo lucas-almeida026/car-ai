@@ -56,9 +56,15 @@ impl Road {
         }
 
         for i in 1..=self.lanes - 1 {
-            let x = fns::lerp(self.left, self.right, i as f32 / self.lanes as f32);
-            let dashes =
-                Road::dashed_line_vertical(x as i32, self.top / 2 - (offset as i32), 5, self.bottom as u32, 40, 40);
+            let x = fns::lerpf32(self.left, self.right, i as f32 / self.lanes as f32);
+            let dashes = Road::dashed_line_vertical(
+                x as i32,
+                self.top / 2 - (offset as i32),
+                5,
+                self.bottom as u32,
+                40,
+                40,
+            );
             for dash in dashes {
                 canvas.fill_rect(dash).map_err(|e| e.to_string())?;
             }

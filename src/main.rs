@@ -1,13 +1,15 @@
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use std::time::{Duration, Instant};
+use std::{f32::consts::PI, time::{Duration, Instant}};
 
 mod car;
 mod fns;
 mod road;
+mod sensor;
 use car::Car;
 use road::Road;
+// use sensor::Sensor;
 
 fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
@@ -28,9 +30,19 @@ fn main() -> Result<(), String> {
 
     car.src_crop_center(200, 380);
     car.set_scale(0.3);
-	car.x = road.lane_center(1)
-	.map(|x| x - (car.scaled_width() / 8.0))
-	.or(Some(w_width as f32 / 2.0 - (car.scaled_width() / 8.0))).unwrap();
+    car.x = road
+        .lane_center(1)
+        .map(|x| x - (car.scaled_width() / 2.0))
+        .or(Some(w_width as f32 / 2.0 - (car.scaled_width() / 2.0)))
+        .unwrap();
+
+    // let sensor = Sensor::new(
+	// 	&car,
+	// 	2,
+	// 	100.0,
+	// 	PI / 4.0
+	// );
+	println!("{}, {}", car.center_point().x, car.center_point().y);
 
     let mut event_pump = sdl_context.event_pump()?;
     let target_fps = 60;
@@ -47,6 +59,9 @@ fn main() -> Result<(), String> {
                 } => {
                     break 'running;
                 }
+				Event::MouseButtonDown{x, y, ..} => {
+					println!("x: {}, y: {}", x, y);
+				}
                 _ => {}
             }
             car.update_state(&event);
@@ -56,10 +71,11 @@ fn main() -> Result<(), String> {
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
-		let camera_y_offset = car.y - (w_height as f32 * 0.7);
+        let camera_y_offset = car.y - (w_height as f32 * 0.7);
 
         road.render(&mut canvas, camera_y_offset)?;
         car.render(&mut canvas, camera_y_offset)?;
+		// sensor.render(&mut canvas, camera_y_offset)?;
 
         canvas.present();
 
