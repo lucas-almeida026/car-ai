@@ -39,12 +39,15 @@ impl Sensor {
         angle: f64,
         borders: &Vec<Border>,
 		traffic: &Vec<Car>,
-		offset: f32
-    ) -> Result<(), String> {
+		offset: f32,
+		is_best: bool
+    ) -> Result<Vec<f64>, String> {
+		let mut result = Vec::with_capacity(self.rays.len());
         for ray in self.rays.iter() {
-            ray.render(canvas, x, y, w, h, angle, &borders, &traffic, offset)?;
+            let reading = ray.render(canvas, x, y, w, h, angle, &borders, &traffic, offset, is_best)?;
+			result.push(reading);
         }
-        Ok(())
+        Ok(result)
     }
 }
 
@@ -67,8 +70,9 @@ impl Ray {
         angle: f64,
         borders: &Vec<Border>,
 		traffic: &Vec<Car>,
-		offset: f32
-    ) -> Result<(), String> {
+		offset: f32,
+		is_best: bool
+    ) -> Result<f64, String> {
         let center_x = x + w / 2.0;
         let center_y = y + h / 2.0;
         let start = FPoint::new(center_x, center_y);
@@ -117,19 +121,24 @@ impl Ray {
 		}
 
         let mut closest = end;
+		let mut reading: Option<f64> = None;
         if touches.len() > 0 {
             touches.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             closest = touches[0].0;
+
+			reading = Some(1.0 - touches[0].1 as f64);
         }
 
-        canvas.set_draw_color(Color::RGB(32, 232, 32));
-        canvas.draw_fline(start, closest)?;
+        if is_best {
+			canvas.set_draw_color(Color::RGB(32, 232, 32));
+        	canvas.draw_fline(start, closest)?;
+		}
 
-        if touches.len() > 0 {
+        if touches.len() > 0 && is_best {
 			canvas.set_draw_color(Color::RGB(255, 32, 64));
 			canvas.draw_fline(closest, end)?;
 		}
 
-        Ok(())
+        Ok(reading.unwrap_or(0.0))
     }
 }

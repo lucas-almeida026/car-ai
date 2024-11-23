@@ -1,15 +1,15 @@
 use std::f64::consts::PI;
 
+use rand::{self, Rng};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::{Color, PixelFormatEnum};
+use sdl2::pixels::Color;
 use sdl2::rect::{FPoint, FRect, Point, Rect};
-use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
-use sdl2::surface::Surface;
-use sdl2::video::{Window, WindowContext};
-use rand::{self, Rng};
+use sdl2::render::{BlendMode, Canvas, Texture};
+use sdl2::video::Window;
 
 use crate::fns::get_intersectionf;
+use crate::network::NeuralNetwork;
 use crate::road::Border;
 use crate::sensor::Sensor;
 type Polygon = Vec<FPoint>;
@@ -31,34 +31,17 @@ pub struct Car<'a> {
     left: bool,
     right: bool,
     damaged: bool,
-    texture: Texture<'a>,
-	dummy: bool,
+    texture: &'a Texture<'a>,
+    dummy: bool,
+    pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
 }
 
 impl<'a> Car<'a> {
-    pub fn try_new(
-        path: &'static str,
-        tc: &'a TextureCreator<WindowContext>,
-    ) -> Result<Self, String> {
-        let mut image = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
-
-        let (width, height) = (image.width(), image.height());
-
-        let surface = Surface::from_data(
-            &mut image,
-            width,
-            height,
-            width * 4,
-            PixelFormatEnum::ABGR8888,
-        )
-        .map_err(|e| e.to_string())?;
-
-        let mut texture = tc
-            .create_texture_from_surface(&surface)
-            .map_err(|e| e.to_string())?;
-
-        texture.set_blend_mode(BlendMode::Blend);
+    pub fn new(texture: &'a Texture<'a>, width: u32, height: u32) -> Result<Self, String> {
+        let amount_of_sensors = 11;
+        let mut brain = NeuralNetwork::new(&[amount_of_sensors, 6, 4]);
+        brain.randomize();
 
         Ok(Car {
             width,
@@ -78,8 +61,9 @@ impl<'a> Car<'a> {
             damaged: false,
             texture,
             src_rect: None,
-			dummy: false,
-            sensors: vec![Sensor::new(7, 220.0, PI / 4.0)],
+            dummy: false,
+            brain: Some(brain),
+            sensors: vec![Sensor::new(amount_of_sensors, 220.0, PI / 2.0)],
         })
     }
 
@@ -102,19 +86,29 @@ impl<'a> Car<'a> {
         }
     }
 
+    pub fn is_passed_bottom_bound(&self, h: i32, offset: f32) -> bool {
+        let (_, scaled_h) = self.get_scaled_size();
+        let y = self.y - offset;
+        y - scaled_h > (h as f32)
+    }
+
     pub fn render(
         &mut self,
         canvas: &mut Canvas<Window>,
         offset: f32,
         borders: &Vec<Border>,
-		traffic: &Vec<Car>,
+        traffic: &Vec<Car>,
+        is_best: bool,
     ) -> Result<(), String> {
         // render texture
-		let (scaled_w, scaled_h) = self.get_scaled_size();
-
-		if self.damaged {
-			self.damaged_filter();
+		if is_best {
+			// self.texture.set_alpha_mod(255);
 		}
+        let (scaled_w, scaled_h) = self.get_scaled_size();
+
+        if self.damaged {
+			// drawing_texture.set_color_mod(64, 64, 64);
+        }
 
         let dst_rect = FRect::new(self.x, self.y as f32 - offset, scaled_w, scaled_h);
 
@@ -131,62 +125,56 @@ impl<'a> Car<'a> {
         // render hitbox
         let rotated_points: Vec<Point> = self.get_rotated_hitbox_points(offset);
 
-		for i in 0..rotated_points.len() {
-			let a = rotated_points[i];
-			let b = rotated_points[(i + 1) % rotated_points.len()];
-			let mut touches: Vec<(Point, f32)> = Vec::new();
-			canvas.draw_line(a, b)?;
-			for border in borders.iter() {
-				let touch = get_intersectionf(
-					a.x as f32,
-					a.y as f32,
-					b.x as f32,
-					b.y as f32,
-					border.start.x as f32,
-					border.start.y as f32,
-					border.end.x as f32,
-					border.end.y as f32,
-				);
-				if let Some((p, t)) = touch {
-					touches.push((Point::new(p.x as i32, p.y as i32), t));
-				}
-			}
-			for car in traffic.iter() {
-				let points = car.get_rotated_hitbox_points(offset);
-	
-				for i in 0..points.len() {
-					let c = points[i];
-					let d = points[(i + 1) % points.len()];
-					let touch = get_intersectionf(
-						a.x as f32,
-						a.y as f32,
-						b.x as f32,
-						b.y as f32,
-						c.x as f32,
-						c.y as f32,
-						d.x as f32,
-						d.y as f32
-					);
-	
-					if let Some((p, t)) = touch {
-						touches.push((Point::new(p.x as i32, p.y as i32), t));
-					}
-				}
-			}
+        for i in 0..rotated_points.len() {
+            let a = rotated_points[i];
+            let b = rotated_points[(i + 1) % rotated_points.len()];
+            let mut touches: Vec<(Point, f32)> = Vec::new();
+            canvas.draw_line(a, b)?;
+            for border in borders.iter() {
+                let touch = get_intersectionf(
+                    a.x as f32,
+                    a.y as f32,
+                    b.x as f32,
+                    b.y as f32,
+                    border.start.x as f32,
+                    border.start.y as f32,
+                    border.end.x as f32,
+                    border.end.y as f32,
+                );
+                if let Some((p, t)) = touch {
+                    touches.push((Point::new(p.x as i32, p.y as i32), t));
+                }
+            }
+            for car in traffic.iter() {
+                let points = car.get_rotated_hitbox_points(offset);
 
-			if touches.len() > 0 {
-				self.damaged = true;
-				canvas.set_draw_color(Color::RGB(255, 12, 255));
-			} else {
-				canvas.set_draw_color(Color::RGB(12, 0, 255));
-			}
-	
-			
-			canvas.draw_line(a, b)?;
-		}
+                for i in 0..points.len() {
+                    let c = points[i];
+                    let d = points[(i + 1) % points.len()];
+                    let touch = get_intersectionf(
+                        a.x as f32, a.y as f32, b.x as f32, b.y as f32, c.x as f32, c.y as f32,
+                        d.x as f32, d.y as f32,
+                    );
 
+                    if let Some((p, t)) = touch {
+                        touches.push((Point::new(p.x as i32, p.y as i32), t));
+                    }
+                }
+            }
+
+            if touches.len() > 0 {
+                self.damaged = true;
+                canvas.set_draw_color(Color::RGB(255, 12, 255));
+            } else {
+                canvas.set_draw_color(Color::RGB(12, 0, 255));
+            }
+
+            canvas.draw_line(a, b)?;
+        }
+
+        let mut readings = Vec::new();
         for sensor in self.sensors.iter_mut() {
-            sensor
+            readings = sensor
                 .render(
                     canvas,
                     self.x,
@@ -195,24 +183,23 @@ impl<'a> Car<'a> {
                     scaled_h,
                     self.angle,
                     &borders,
-					&traffic,
-					offset
+                    &traffic,
+                    offset,
+                    is_best,
                 )
-                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
+        }
+
+        if self.brain.is_some() {
+            let outputs = self.brain.as_mut().unwrap().feed_forward(readings);
+            assert_eq!(outputs.len(), 4);
+            self.forward = outputs[0] > 0.5;
+            self.backward = outputs[1] > 0.5;
+            self.left = outputs[2] > 0.5;
+            self.right = outputs[3] > 0.5;
         }
         Ok(())
     }
-
-	fn damaged_filter(&mut self) {
-		self.texture.set_color_mod(64, 64, 64);
-	}
-
-	pub fn random_filter(&mut self) {
-		let r = rand::thread_rng().gen_range(24..64);
-		let g = rand::thread_rng().gen_range(191..255);
-		let b = rand::thread_rng().gen_range(191..255);
-		self.texture.set_color_mod(r, g, b);
-	}
 
     pub fn scaled_width(&self) -> f32 {
         self.width as f32 * self.scale
@@ -222,18 +209,18 @@ impl<'a> Car<'a> {
         self.height as f32 * self.scale
     }
 
-	pub fn get_scaled_size(&self) -> (f32, f32) {
-		let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
+    pub fn get_scaled_size(&self) -> (f32, f32) {
+        let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
         let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
 
         let scaled_w = w * self.scale;
         let scaled_h = h * self.scale;
 
-		(scaled_w, scaled_h)
-	}
+        (scaled_w, scaled_h)
+    }
 
-	pub fn get_hitbox_points(&self, w: f32, h: f32) -> [(f32, f32); 10] {
-		let side_y = h * 0.6;
+    pub fn get_hitbox_points(&self, w: f32, h: f32) -> [(f32, f32); 10] {
+        let side_y = h * 0.6;
         let side_w = w * 0.1;
 
         let front_y = h * 0.2;
@@ -258,29 +245,29 @@ impl<'a> Car<'a> {
             (-(w - side_w) / 2.0, (h - back_y) / 2.0),
         ];
 
-		points
-	}
+        points
+    }
 
-	pub fn get_rotated_hitbox_points(&self, offset: f32) -> Vec<Point> {
-		let (w, h) = self.get_scaled_size();
-		let center_x = self.x + w / 2.0;
+    pub fn get_rotated_hitbox_points(&self, offset: f32) -> Vec<Point> {
+        let (w, h) = self.get_scaled_size();
+        let center_x = self.x + w / 2.0;
         let center_y = (self.y - offset) + h / 2.0;
         let angle_rad = self.angle.to_radians() as f32;
-		self.get_hitbox_points(w, h)
-		.iter()
-		.map(|&(px, py)| {
-			let rx = px * angle_rad.cos() - py * angle_rad.sin();
-			let ry = px * angle_rad.sin() + py * angle_rad.cos();
-			Point::new((rx + center_x) as i32, (ry + center_y) as i32)
-		})
-		.collect()
-	}
+        self.get_hitbox_points(w, h)
+            .iter()
+            .map(|&(px, py)| {
+                let rx = px * angle_rad.cos() - py * angle_rad.sin();
+                let ry = px * angle_rad.sin() + py * angle_rad.cos();
+                Point::new((rx + center_x) as i32, (ry + center_y) as i32)
+            })
+            .collect()
+    }
 
     pub fn update_position(&mut self) {
-		if self.damaged {
-			self.velocity = 0.0;
-			return;
-		}
+        if self.damaged {
+            self.velocity = 0.0;
+            return;
+        }
         if self.forward {
             if self.velocity < self.max_velocity / 2.0 {
                 self.velocity += self.acceleration / 1.6;
@@ -331,9 +318,9 @@ impl<'a> Car<'a> {
     }
 
     pub fn update_state(&mut self, event: &Event) {
-		if self.damaged {
-			return
-		}
+        if self.damaged || self.brain.is_some() {
+            return;
+        }
         match event {
             Event::KeyDown {
                 keycode: Some(Keycode::Left),
@@ -387,12 +374,13 @@ impl<'a> Car<'a> {
         }
     }
 
-	pub fn as_dummy(&mut self, max_velocity: f32) {
-		self.forward = true;
-		self.acceleration = 0.0;
-		self.velocity = max_velocity;
-		self.friction = 0.0;
-		self.sensors = vec![];
-		self.dummy = true;
-	}
+    pub fn as_dummy(&mut self, max_velocity: f32) {
+        self.forward = true;
+        self.acceleration = 0.0;
+        self.velocity = max_velocity;
+        self.friction = 0.0;
+        self.sensors = vec![];
+        self.dummy = true;
+        self.brain = None;
+    }
 }

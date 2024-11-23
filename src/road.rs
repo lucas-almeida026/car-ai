@@ -9,7 +9,7 @@ const INFINITY: i32 = 1000000;
 pub struct Road {
     x: i32,
     width: i32,
-    lanes: i32,
+    pub lanes: i32,
     left: f32,
     right: f32,
     top: i32,
