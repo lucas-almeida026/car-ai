@@ -1,3 +1,4 @@
+use crate::car::Car;
 use crate::fns::{get_intersectionf, lerpf64};
 use crate::road::Border;
 use sdl2::pixels::Color;
@@ -37,9 +38,11 @@ impl Sensor {
         h: f32,
         angle: f64,
         borders: &Vec<Border>,
+		traffic: &Vec<Car>,
+		offset: f32
     ) -> Result<(), String> {
         for ray in self.rays.iter() {
-            ray.render(canvas, x, y, w, h, angle, &borders)?;
+            ray.render(canvas, x, y, w, h, angle, &borders, &traffic, offset)?;
         }
         Ok(())
     }
@@ -63,6 +66,8 @@ impl Ray {
         h: f32,
         angle: f64,
         borders: &Vec<Border>,
+		traffic: &Vec<Car>,
+		offset: f32
     ) -> Result<(), String> {
         let center_x = x + w / 2.0;
         let center_y = y + h / 2.0;
@@ -87,6 +92,29 @@ impl Ray {
                 touches.push(t);
             }
         }
+
+		for car in traffic.iter() {
+			let points = car.get_rotated_hitbox_points(offset);
+
+			for i in 0..points.len() {
+				let a = points[i];
+				let b = points[(i + 1) % points.len()];
+				let touch = get_intersectionf(
+					start.x,
+					start.y,
+					end.x,
+					end.y,
+					a.x as f32,
+					a.y as f32,
+					b.x as f32,
+					b.y as f32
+				);
+
+				if let Some(t) = touch {
+					touches.push(t);
+				}
+			}
+		}
 
         let mut closest = end;
         if touches.len() > 0 {

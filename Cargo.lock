@@ -125,6 +125,7 @@ name = "car-ai"
 version = "0.1.0"
 dependencies = [
  "image",
+ "rand",
  "sdl2",
 ]
 

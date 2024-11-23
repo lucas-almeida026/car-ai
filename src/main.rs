@@ -36,13 +36,22 @@ fn main() -> Result<(), String> {
         .or(Some(w_width as f32 / 2.0 - (car.scaled_width() / 2.0)))
         .unwrap();
 
-    // let sensor = Sensor::new(
-	// 	&car,
-	// 	2,
-	// 	100.0,
-	// 	PI / 4.0
-	// );
-	println!("{}, {}", car.center_point().x, car.center_point().y);
+	let mut traffic = vec![
+		Car::try_new("assets/car.png", &texture_creator).unwrap(),
+	];
+
+	for car in &mut traffic {
+		car.src_crop_center(194, 380);
+		car.set_scale(0.3);
+		car.y -= 100.0;
+		car.x = road
+			.lane_center(2)
+			.map(|x| x - (car.scaled_width() / 2.0))
+			.or(Some(w_width as f32 / 2.0 - (car.scaled_width() / 2.0)))
+			.unwrap();
+		car.random_filter();
+		car.as_dummy(3.0);
+	}
 
     let mut event_pump = sdl_context.event_pump()?;
     let target_fps = 60;
@@ -74,8 +83,12 @@ fn main() -> Result<(), String> {
         let camera_y_offset = car.y - (w_height as f32 * 0.7);
 
         road.render(&mut canvas, camera_y_offset)?;
-        car.render(&mut canvas, camera_y_offset, &road.borders)?;
-		// sensor.render(&mut canvas, camera_y_offset)?;
+
+		for car in &mut traffic {
+			car.update_position();
+			car.render(&mut canvas, camera_y_offset, &road.borders, &vec![])?;
+		}
+		car.render(&mut canvas, camera_y_offset, &road.borders, &traffic)?;
 
         canvas.present();
 
