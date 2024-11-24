@@ -65,7 +65,7 @@ impl<'a> Car<'a> {
             // Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 64, 64, 64, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -383,17 +383,16 @@ impl<'a> Car<'a> {
             }
         }
 
-
 		if self.dummy {
-			let rand_num = rand::thread_rng().gen_range(1..256);
+			let rand_num = rand::thread_rng().gen_range(1..1024);
 			if rand_num == 1 {
-				self.motion.velocity /= 1.33;
-			} else if rand_num > 220 {
+				self.motion.velocity /= 1.5;
+			} else if rand_num > 1024 - 32 {
 				self.motion.velocity = self.motion.max_velocity - 0.01;
 			}
 
 			if !self.changing_lane {
-				let should_change_lane = rand::thread_rng().gen_range(1..1024) == 1;
+				let should_change_lane = rand::thread_rng().gen_range(1..512) == 1;
 				if should_change_lane {
 					self.changing_lane = true;
 					self.target_lane = road.random_lane_idx();
@@ -407,9 +406,8 @@ impl<'a> Car<'a> {
 				}
 			} else {
 				let target_x = road.lane_center(self.target_lane).unwrap();
-				let xmin = target_x - 0.05;
-				let xmax = target_x + 0.05;
-
+				let xmin = target_x - 2.0;
+				let xmax = target_x + 2.0;
 				if self.position.x > xmin && self.position.x < xmax {
 					self.position.angle = 0.0;
 					self.changing_lane = false;
@@ -644,7 +642,7 @@ pub fn create_traffic_texture_pool<'a>(
     size: u32,
 ) -> Result<TexturePool<'a>, String> {
     let mut pool = TexturePool::new(size, tc)?;
-    let colors = [(32, 64, 255), (255, 32, 64), (32, 255, 64)];
+    let colors = [(255, 32, 64), (32, 255, 64)];
     for (i, t) in pool.pool.iter_mut().enumerate() {
         let color = colors[i % colors.len()];
         t.texture.set_blend_mode(BlendMode::Blend);

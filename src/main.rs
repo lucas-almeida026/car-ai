@@ -5,11 +5,11 @@ use std::time::{Duration, Instant};
 
 mod car;
 mod fns;
+mod gpu;
 mod network;
 mod road;
 mod sensor;
 mod texture;
-mod gpu;
 
 use car::{Car, ControlledCar};
 use road::Road;
@@ -28,8 +28,8 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 420;
-    let traffic_size = 6;
+    let amount_cars = 550;
+    let traffic_size = 5;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -40,7 +40,7 @@ fn main() -> Result<(), String> {
 
     let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.33) as i32, 3);
     let mut car = Car::new(
-		1,
+        1,
         &focused_texture,
         &unfocused_texture,
         &damaged_texture,
@@ -56,11 +56,14 @@ fn main() -> Result<(), String> {
     let mut ai_cars = generate_ai_cars(
         amount_cars,
         &road,
+        None,
+		None,
         &focused_texture,
         &unfocused_texture,
         &damaged_texture,
     );
-    let mut best_car_index: usize;
+    let mut min_y_idx: usize;
+    let mut max_score_idx: usize;
     let mut cars_alive = ai_cars.len() as i32;
 
     let mut traffic = generate_traffic(
@@ -100,9 +103,26 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // let max_score = ai_cars.iter().filter(|&c| !c.damaged).map(|c| c.score).max().unwrap_or(0);
-		let min_y = ai_cars.iter().filter(|&c| !c.damaged).map(|c| c.position.y).min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(0.0);
-        best_car_index = ai_cars.iter().position(|c| c.position.y == min_y).unwrap_or(0);
+        let max_score = ai_cars
+            .iter()
+            .filter(|&c| !c.damaged)
+            .map(|c| c.score)
+            .max()
+            .unwrap_or(0);
+        let min_y = ai_cars
+            .iter()
+            .filter(|&c| !c.damaged)
+            .map(|c| c.position.y)
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .unwrap_or(0.0);
+        min_y_idx = ai_cars
+            .iter()
+            .position(|c| c.position.y == min_y)
+            .unwrap_or(0);
+        max_score_idx = ai_cars
+            .iter()
+            .position(|c| c.score == max_score)
+            .unwrap_or(0);
 
         canvas.set_draw_color(Color::RGB(12, 12, 16));
         canvas.clear();
@@ -110,7 +130,7 @@ fn main() -> Result<(), String> {
         let camera_y_offset = if use_controlled_car {
             controlled_car.screen_offset(w_height as f32 * 0.7)
         } else {
-            ai_cars[best_car_index].position.y - (w_height as f32 * 0.7)
+            ai_cars[min_y_idx].position.y - (w_height as f32 * 0.7)
         };
 
         road.render(&mut canvas, camera_y_offset)?;
@@ -133,7 +153,7 @@ fn main() -> Result<(), String> {
 
         // let best_car_y = ai_cars.get(best_car_index).unwrap().position.y;
         for (i, car) in ai_cars.iter_mut().enumerate() {
-            let is_best = i == best_car_index;
+            let is_best = i == min_y_idx || i == max_score_idx;
             car.render(
                 &mut canvas,
                 camera_y_offset,
@@ -150,16 +170,24 @@ fn main() -> Result<(), String> {
             }
             // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
         }
-        if cars_alive < 2 && !use_controlled_car {
-            let best = &ai_cars[best_car_index];
+        if cars_alive < 5 && !use_controlled_car {
+            let best = &ai_cars[min_y_idx];
+            let second_best = &ai_cars[max_score_idx];
             println!("top score: {}", best.score);
             if best.brain.is_some() {
                 let net = best.brain.as_ref().unwrap();
                 net.save_as_file("networks/best.json")
                     .expect("failed to save network");
+
+                let net = second_best.brain.as_ref().unwrap();
+                net.save_as_file("networks/second_best.json")
+                    .expect("failed to save network");
+
                 ai_cars = generate_ai_cars(
                     amount_cars,
                     &road,
+                    best.brain.clone(),
+					second_best.brain.clone(),
                     &focused_texture,
                     &unfocused_texture,
                     &damaged_texture,
@@ -201,6 +229,8 @@ fn main() -> Result<(), String> {
 fn generate_ai_cars<'a>(
     amount: u32,
     road: &'a Road,
+    ref_brain: Option<NeuralNetwork>,
+	ref_brain2: Option<NeuralNetwork>,
     fc: &'a SizedTexture,
     uf: &'a SizedTexture,
     dm: &'a SizedTexture,
@@ -208,23 +238,27 @@ fn generate_ai_cars<'a>(
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
 
-    let mut ref_brain: Option<NeuralNetwork> = None;
-    let net = NeuralNetwork::load_from_file("networks/best.json");
-    if let Ok(net) = net {
-        ref_brain = Some(net);
-    }
+    // let mut ref_brain: Option<NeuralNetwork> = None;
+    // let net = NeuralNetwork::load_from_file("networks/best.json");
+    // if let Ok(net) = net {
+    //     ref_brain = Some(net);
+    // }
 
     for i in 0..amount {
         let t = if i < 30 { 0.666 } else { 0.9 };
-		let lane_idx = road.random_lane_idx();
-        car = Car::new(lane_idx, fc, uf, dm, ref_brain.as_ref(), t);
+        let lane_idx = road.random_lane_idx();
+        car = if i % 2 == 0 {
+			Car::new(lane_idx, fc, uf, dm, ref_brain.as_ref(), t)
+		} else {
+			Car::new(lane_idx, fc, uf, dm, ref_brain2.as_ref(), t)
+		};
         if car.is_err() {
             continue;
         }
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
         let _ = car.set_scale(0.3);
-		let _ = car.set_in_lane(&road, lane_idx);
+        let _ = car.set_in_lane(&road, lane_idx);
         cars.push(car);
     }
     cars
@@ -241,19 +275,19 @@ fn generate_traffic<'a>(
     let mut car;
     for _ in 0..amount {
         let fc = pool.get();
-		let lane_idx = road.random_lane_idx();
+        let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc, fc, dm, None, 0.0);
         if car.is_err() {
             continue;
         }
-        let max_velocity = rand::thread_rng().gen_range(5.0..8.5);
+        let max_velocity = rand::thread_rng().gen_range(7.0..8.5);
         let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
 
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
         let _ = car.set_scale(0.3);
         car.position.y -= start_y as f32;
-		let _ = car.set_in_lane(&road, lane_idx);
+        let _ = car.set_in_lane(&road, lane_idx);
         car.as_dummy(max_velocity);
 
         cars.push(car);
@@ -277,24 +311,18 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
 
 #[cfg(test)]
 mod test {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn feed_forward_cpu() {
-		let neuron_count = &[2, 2, 2];
-		let mut net = NeuralNetwork::new(neuron_count);
-		for level in net.levels.iter_mut() {
-			level.biases = vec![0.3, -0.1];
-			level.weights = vec![
-				vec![-0.1, 0.2],
-				vec![0.3, -0.4],
-			]
-		}
-		let output = net.feed_forward(&vec![0.1, 0.42]);
-		let expected = [
-			0.5814949520460782,
-			0.47537390107617306,
-		];
-		assert_eq!(output, expected);
-	}
+    #[test]
+    fn feed_forward_cpu() {
+        let neuron_count = &[2, 2, 2];
+        let mut net = NeuralNetwork::new(neuron_count);
+        for level in net.levels.iter_mut() {
+            level.biases = vec![0.3, -0.1];
+            level.weights = vec![vec![-0.1, 0.2], vec![0.3, -0.4]]
+        }
+        let output = net.feed_forward(&vec![0.1, 0.42]);
+        let expected = [0.5814949520460782, 0.47537390107617306];
+        assert_eq!(output, expected);
+    }
 }

@@ -4,7 +4,7 @@ use crate::{fns::{self, lerpf64}, gpu};
 use serde::{de::Error, Deserialize, Serialize};
 use serde_json::Result;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct NeuralNetwork {
 	pub levels: Vec<Level>,
 }
@@ -60,7 +60,7 @@ impl NeuralNetwork {
 	}
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Level {
 	pub inputs: Vec<f64>,
 	pub outputs: Vec<f64>,
