@@ -14,7 +14,7 @@ mod fns;
 mod network;
 mod road;
 mod sensor;
-use car::Car;
+use car::{Car, ControlledCar};
 use road::Road;
 // use sensor::Sensor;
 
@@ -51,7 +51,7 @@ fn main() -> Result<(), String> {
         .map(|x| x - (car.scaled_width() as f32 / 2.0))
         .or(Some(w_width as f32 / 2.0 - (car.scaled_width() as f32 / 2.0)))
         .unwrap();
-    car.brain = None;
+	let mut controlled_car = ControlledCar::new(car);
 
     // let mut ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
     // let mut best_car_index: usize;
@@ -80,14 +80,11 @@ fn main() -> Result<(), String> {
                 } => {
                     break 'running;
                 }
-                // Event::MouseButtonDown { x, y, .. } => {
-                //     println!("x: {}, y: {}", x, y);
-                // }
                 _ => {}
             }
-            car.process_event(&event);
+            controlled_car.process_event(&event);
         }
-        car.update_position();
+        controlled_car.update_position();
         // for car in ai_cars.iter_mut() {
         //     car.update_position();
         // }
@@ -99,11 +96,11 @@ fn main() -> Result<(), String> {
         //     .unwrap_or(0);
         // best_car_index = ai_cars.iter().position(|c| c.score == max_score).unwrap();
 
-        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.set_draw_color(Color::RGB(12, 12, 16));
         canvas.clear();
 
         // let camera_y_offset = ai_cars[best_car_index].position.y - (w_height as f32 * 0.7);
-        let camera_y_offset = car.position.y - (w_height as f32 * 0.7);
+        let camera_y_offset = controlled_car.screen_offset(w_height as f32 * 0.7);
 
         road.render(&mut canvas, camera_y_offset)?;
 
@@ -159,7 +156,7 @@ fn main() -> Result<(), String> {
         //         );
         //     }
         // }
-        car.render(&mut canvas, camera_y_offset, &road.borders, &traffic, true, &mut 0)?;
+        controlled_car.render(&mut canvas, camera_y_offset, &road.borders, &traffic, true, &mut 0)?;
 
         canvas.present();
 

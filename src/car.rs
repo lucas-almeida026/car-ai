@@ -345,63 +345,6 @@ impl<'a> Car<'a> {
         self.position.y -= self.position.angle.to_radians().cos() as f32 * self.motion.velocity;
     }
 
-    pub fn process_event(&mut self, event: &Event) {
-        // if self.damaged || self.brain.is_some() {
-        //     return;
-        // }
-        match event {
-            Event::KeyDown {
-                keycode: Some(Keycode::Left),
-                ..
-            } => {
-                self.controls.left = true;
-            }
-            Event::KeyUp {
-                keycode: Some(Keycode::Left),
-                ..
-            } => {
-                self.controls.left = false;
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::Right),
-                ..
-            } => {
-                self.controls.right = true;
-            }
-            Event::KeyUp {
-                keycode: Some(Keycode::Right),
-                ..
-            } => {
-                self.controls.right = false;
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::Up),
-                ..
-            } => {
-                self.controls.forward = true;
-            }
-            Event::KeyUp {
-                keycode: Some(Keycode::Up),
-                ..
-            } => {
-                self.controls.forward = false;
-            }
-            Event::KeyDown {
-                keycode: Some(Keycode::Down),
-                ..
-            } => {
-                self.controls.backward = true;
-            }
-            Event::KeyUp {
-                keycode: Some(Keycode::Down),
-                ..
-            } => {
-                self.controls.backward = false;
-            }
-            _ => {}
-        }
-    }
-
     pub fn as_dummy(&mut self, max_velocity: f32) {
         self.controls.forward = true;
         self.motion.acceleration = 0.0;
@@ -499,6 +442,94 @@ impl Controls {
             backward: false,
             left: false,
             right: false,
+        }
+    }
+}
+
+pub struct ControlledCar<'a> {
+    car: Car<'a>,
+}
+impl<'a> ControlledCar<'a> {
+    pub fn new(mut car: Car<'a>) -> Self {
+        car.brain = None;
+        Self { car }
+    }
+
+    pub fn update_position(&mut self) {
+        self.car.update_position();
+    }
+
+    pub fn screen_offset(&self, target_y: f32) -> f32 {
+        self.car.position.y - target_y
+    }
+
+    pub fn render(
+        &mut self,
+        canvas: &mut Canvas<Window>,
+        offset: f32,
+        borders: &Vec<Border>,
+        traffic: &Vec<Car>,
+        is_best: bool,
+        cars_alive: &mut i32,
+    ) -> Result<(), String> {
+        self.car
+            .render(canvas, offset, borders, traffic, is_best, cars_alive)
+    }
+
+    pub fn process_event(&mut self, event: &Event) {
+        if self.car.damaged {
+            return;
+        }
+        match event {
+            Event::KeyDown {
+                keycode: Some(Keycode::Left),
+                ..
+            } => {
+                self.car.controls.left = true;
+            }
+            Event::KeyUp {
+                keycode: Some(Keycode::Left),
+                ..
+            } => {
+                self.car.controls.left = false;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Right),
+                ..
+            } => {
+                self.car.controls.right = true;
+            }
+            Event::KeyUp {
+                keycode: Some(Keycode::Right),
+                ..
+            } => {
+                self.car.controls.right = false;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Up),
+                ..
+            } => {
+                self.car.controls.forward = true;
+            }
+            Event::KeyUp {
+                keycode: Some(Keycode::Up),
+                ..
+            } => {
+                self.car.controls.forward = false;
+            }
+            Event::KeyDown {
+                keycode: Some(Keycode::Down),
+                ..
+            } => {
+                self.car.controls.backward = true;
+            }
+            Event::KeyUp {
+                keycode: Some(Keycode::Down),
+                ..
+            } => {
+                self.car.controls.backward = false;
+            }
+            _ => {}
         }
     }
 }
