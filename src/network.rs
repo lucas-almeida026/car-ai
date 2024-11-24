@@ -104,7 +104,7 @@ impl Level {
 
 			sum += self.biases[i];
 
-			self.outputs[i] = fns::sigmoid(sum)
+			self.outputs[i] = sum.tanh();
 		}
 		self.outputs.clone()
 	}

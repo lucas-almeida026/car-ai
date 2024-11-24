@@ -1,5 +1,6 @@
 use std::f64::consts::PI;
 
+use rand::Rng;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -9,7 +10,7 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
-use crate::road::{Border, Road};
+use crate::road::{self, Border, Road};
 use crate::sensor::{Facing, Sensor, SensorPos};
 use crate::texture::{self, SizedTexture, TexturePool};
 
@@ -28,11 +29,15 @@ pub struct Car<'a> {
     src_rect: Option<Rect>,
     pub score: i64,
     last_y: f32,
+	changing_lane: bool,
+	target_lane: u32,
+	current_lane: u32,
     same_y_count: u32,
 }
 
 impl<'a> Car<'a> {
     pub fn new(
+		current_lane: u32,
         focused: &'a SizedTexture<'a>,
         unfocused: &'a SizedTexture<'a>,
         damaged: &'a SizedTexture<'a>,
@@ -45,7 +50,8 @@ impl<'a> Car<'a> {
         let controls = Controls::new();
 
         let sensors = vec![
-            Sensor::new(15, 180.0, PI * 1.34, SensorPos::Center, Facing::Forward),
+            Sensor::new(36, 220.0, PI * 1.5, SensorPos::Center, Facing::Forward),
+            Sensor::new(28, 420.0, PI * 0.3, SensorPos::Center, Facing::Forward),
             // Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
             // Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
             // Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
@@ -59,7 +65,7 @@ impl<'a> Car<'a> {
             // Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 64, 64, 64, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -82,6 +88,9 @@ impl<'a> Car<'a> {
             score: 0,
             last_y: 600.0,
             same_y_count: 0,
+			target_lane: current_lane,
+			current_lane,
+			changing_lane: false,
         })
     }
 
@@ -213,6 +222,8 @@ impl<'a> Car<'a> {
                     *cars_alive -= 1;
                 }
                 self.damaged = true;
+				self.changing_lane = false;
+				self.position.angle = 0.0;
                 canvas.set_draw_color(Color::RGB(255, 12, 255));
             } else {
                 canvas.set_draw_color(Color::RGB(12, 0, 255));
@@ -245,10 +256,11 @@ impl<'a> Car<'a> {
         if self.brain.is_some() && !self.damaged {
             let outputs = self.brain.as_mut().unwrap().feed_forward(&readings);
             assert_eq!(outputs.len(), 4);
-            self.controls.forward = outputs[0] > 0.5;
-            self.controls.backward = outputs[1] > 0.5;
-            self.controls.left = outputs[2] > 0.5;
-            self.controls.right = outputs[3] > 0.5;
+            self.controls.forward = outputs[0] > 0.33;
+            self.controls.backward = outputs[1] > 0.33;
+            self.controls.left = outputs[2] > 0.33;
+            self.controls.right = outputs[3] > 0.33;
+			// println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
         }
 
         if offset == self.last_y {
@@ -338,7 +350,7 @@ impl<'a> Car<'a> {
             .collect()
     }
 
-    pub fn update_position(&mut self) {
+    pub fn update_position(&mut self, road: &Road) {
         if self.damaged {
             self.motion.velocity = 0.0;
             return;
@@ -371,6 +383,40 @@ impl<'a> Car<'a> {
             }
         }
 
+
+		if self.dummy {
+			let rand_num = rand::thread_rng().gen_range(1..256);
+			if rand_num == 1 {
+				self.motion.velocity /= 1.33;
+			} else if rand_num > 220 {
+				self.motion.velocity = self.motion.max_velocity - 0.01;
+			}
+
+			if !self.changing_lane {
+				let should_change_lane = rand::thread_rng().gen_range(1..1024) == 1;
+				if should_change_lane {
+					self.changing_lane = true;
+					self.target_lane = road.random_lane_idx();
+					if self.current_lane > self.target_lane {
+						self.turn_left_by(9.0);
+					} else if self.current_lane < self.target_lane {
+						self.turn_right_by(9.0);
+					} else {
+						self.changing_lane = false;
+					}
+				}
+			} else {
+				let target_x = road.lane_center(self.target_lane).unwrap();
+				let xmin = target_x - 0.05;
+				let xmax = target_x + 0.05;
+
+				if self.position.x > xmin && self.position.x < xmax {
+					self.position.angle = 0.0;
+					self.changing_lane = false;
+				}
+			}
+		}
+
         self.position.x += self.position.angle.to_radians().sin() as f32 * self.motion.velocity;
         self.position.y -= self.position.angle.to_radians().cos() as f32 * self.motion.velocity;
     }
@@ -378,10 +424,12 @@ impl<'a> Car<'a> {
     pub fn as_dummy(&mut self, max_velocity: f32) {
         self.controls.forward = true;
         self.motion.acceleration = 0.0;
-        self.motion.velocity = max_velocity;
+        self.motion.velocity = max_velocity - 0.01;
+		self.motion.max_velocity = max_velocity;
         self.motion.friction = 0.0;
         self.sensors = vec![];
         self.dummy = true;
+		self.damaged = false;
         self.brain = None;
     }
 
@@ -485,8 +533,8 @@ impl<'a> ControlledCar<'a> {
         Self { car }
     }
 
-    pub fn update_position(&mut self) {
-        self.car.update_position();
+    pub fn update_position(&mut self, road: &Road) {
+        self.car.update_position(road);
     }
 
     pub fn screen_offset(&self, target_y: f32) -> f32 {
