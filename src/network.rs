@@ -1,3 +1,8 @@
+use crate::fns::lerpf64;
+use serde::{de::Error, Deserialize, Serialize};
+use serde_json::{Result};
+
+#[derive(Serialize, Deserialize)]
 pub struct NeuralNetwork {
 	pub levels: Vec<Level>,
 }
@@ -23,8 +28,37 @@ impl NeuralNetwork {
 		}
 		outputs
 	}
+
+	pub fn prune(&mut self, base: &NeuralNetwork, t: f64) {
+		for (x, level) in self.levels.iter_mut().enumerate() {
+			for i in 0..level.biases.len() {
+				level.biases[i] = lerpf64(level.biases[i], base.levels[x].biases[i], t);
+			}
+
+			for i in 0..level.weights.len() {
+				for j in 0..level.weights[i].len() {
+					level.weights[i][j] = lerpf64(level.weights[i][j], base.levels[x].weights[i][j], t);
+				}
+			}
+		}
+	}
+
+	pub fn save_as_file(&self, path: &str) -> Result<()> {
+		let json = serde_json::to_string(&self).unwrap();
+		std::fs::write(path, json).unwrap();
+		Ok(())
+	}
+
+	pub fn load_from_file(path: &str) -> Result<NeuralNetwork> {
+		let json = std::fs::read_to_string(path);
+		if let Ok(json) = json {
+			return Ok(serde_json::from_str(&json).unwrap());
+		}
+		Err(Error::custom("File not found"))
+	}
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Level {
 	pub inputs: Vec<f64>,
 	pub outputs: Vec<f64>,

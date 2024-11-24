@@ -1,18 +1,16 @@
 use std::f64::consts::PI;
 
-use rand::{self, Rng};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
-use sdl2::rect::{FPoint, FRect, Point, Rect};
-use sdl2::render::{BlendMode, Canvas, Texture};
+use sdl2::rect::{FRect, Point, Rect};
+use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
 
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
 use crate::road::Border;
-use crate::sensor::Sensor;
-type Polygon = Vec<FPoint>;
+use crate::sensor::{Facing, Sensor, SensorPos};
 
 pub struct Car<'a> {
     width: u32,
@@ -30,18 +28,39 @@ pub struct Car<'a> {
     backward: bool,
     left: bool,
     right: bool,
-    damaged: bool,
+    pub damaged: bool,
     texture: &'a Texture<'a>,
     dummy: bool,
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
+    pub score: i64,
+    last_y: f32,
+    same_y_count: u32,
 }
 
 impl<'a> Car<'a> {
-    pub fn new(texture: &'a Texture<'a>, width: u32, height: u32) -> Result<Self, String> {
-        let amount_of_sensors = 11;
-        let mut brain = NeuralNetwork::new(&[amount_of_sensors, 6, 4]);
+    pub fn new(
+        texture: &'a Texture<'a>,
+        width: u32,
+        height: u32,
+        ref_brain: Option<&NeuralNetwork>,
+        t: f64,
+    ) -> Result<Self, String> {
+        let sensors = vec![
+            Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopLeft, Facing::Forward),
+            Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
+            Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
+            Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
+            Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterRight, Facing::RightSide),
+            Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
+        ];
+        let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
+        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 64, 64, 8, 8, 8, 8, 4]);
         brain.randomize();
+
+        if ref_brain.is_some() {
+            brain.prune(ref_brain.unwrap(), t);
+        }
 
         Ok(Car {
             width,
@@ -63,7 +82,10 @@ impl<'a> Car<'a> {
             src_rect: None,
             dummy: false,
             brain: Some(brain),
-            sensors: vec![Sensor::new(amount_of_sensors, 220.0, PI / 2.0)],
+            sensors,
+            score: 0,
+            last_y: 600.0,
+            same_y_count: 0,
         })
     }
 
@@ -99,15 +121,14 @@ impl<'a> Car<'a> {
         borders: &Vec<Border>,
         traffic: &Vec<Car>,
         is_best: bool,
+        cars_alive: &mut i32,
     ) -> Result<(), String> {
         // render texture
-		if is_best {
-			// self.texture.set_alpha_mod(255);
-		}
         let (scaled_w, scaled_h) = self.get_scaled_size();
 
-        if self.damaged {
-			// drawing_texture.set_color_mod(64, 64, 64);
+        if !self.damaged {
+            self.score += 1;
+            // drawing_texture.set_color_mod(64, 64, 64);
         }
 
         let dst_rect = FRect::new(self.x, self.y as f32 - offset, scaled_w, scaled_h);
@@ -163,6 +184,9 @@ impl<'a> Car<'a> {
             }
 
             if touches.len() > 0 {
+                if !self.damaged {
+                    *cars_alive -= 1;
+                }
                 self.damaged = true;
                 canvas.set_draw_color(Color::RGB(255, 12, 255));
             } else {
@@ -172,9 +196,9 @@ impl<'a> Car<'a> {
             canvas.draw_line(a, b)?;
         }
 
-        let mut readings = Vec::new();
+        let mut readings = vec![];
         for sensor in self.sensors.iter_mut() {
-            readings = sensor
+            let mut buffer = sensor
                 .render(
                     canvas,
                     self.x,
@@ -188,6 +212,7 @@ impl<'a> Car<'a> {
                     is_best,
                 )
                 .map_err(|e| e.to_string())?;
+			readings.append(&mut buffer);
         }
 
         if self.brain.is_some() {
@@ -198,6 +223,21 @@ impl<'a> Car<'a> {
             self.left = outputs[2] > 0.5;
             self.right = outputs[3] > 0.5;
         }
+
+        if offset == self.last_y {
+            self.same_y_count += 1;
+			self.score -= 100;
+            if self.same_y_count > 60 {
+                *cars_alive -= 1;
+                self.damaged = true;
+            }
+		} else if self.y < self.last_y {
+			self.score += 2;
+		}
+		if self.velocity > self.max_velocity * 0.7 {
+			self.score += 1;
+		}
+        self.last_y = offset;
         Ok(())
     }
 
@@ -318,9 +358,9 @@ impl<'a> Car<'a> {
     }
 
     pub fn update_state(&mut self, event: &Event) {
-        if self.damaged || self.brain.is_some() {
-            return;
-        }
+        // if self.damaged || self.brain.is_some() {
+        //     return;
+        // }
         match event {
             Event::KeyDown {
                 keycode: Some(Keycode::Left),
