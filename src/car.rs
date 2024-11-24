@@ -13,21 +13,11 @@ use crate::road::Border;
 use crate::sensor::{Facing, Sensor, SensorPos};
 
 pub struct Car<'a> {
-    width: u32,
-    height: u32,
-    pub x: f32,
-    pub y: f32,
+    dimentions: Dimentions,
+    pub position: Position,
     sensors: Vec<Sensor>,
-    angle: f64,
-    scale: f32,
-    velocity: f32,
-    max_velocity: f32,
-    acceleration: f32,
-    friction: f32,
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
+    motion: Motion,
+    controls: Controls,
     pub damaged: bool,
     texture: &'a Texture<'a>,
     dummy: bool,
@@ -46,16 +36,27 @@ impl<'a> Car<'a> {
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
     ) -> Result<Self, String> {
+        let dimentions = Dimentions::new(width, height, 1.0);
+        let position = Position::new(400.0, 600.0, 0.0);
+        let motion = Motion::new(0.0, 10.0, 0.4, 0.08);
+        let controls = Controls::new();
+
         let sensors = vec![
             Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopLeft, Facing::Forward),
             Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
             Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
             Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
-            Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterRight, Facing::RightSide),
+            Sensor::new(
+                3,
+                120.0,
+                PI / 2.0,
+                SensorPos::CenterRight,
+                Facing::RightSide,
+            ),
             Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 64, 64, 8, 8, 8, 8, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -63,20 +64,10 @@ impl<'a> Car<'a> {
         }
 
         Ok(Car {
-            width,
-            height,
-            x: 400.0,
-            y: 600.0,
-            angle: 0.0,
-            scale: 1.0,
-            velocity: 0.0,
-            max_velocity: 10.0,
-            acceleration: 0.4,
-            friction: 0.08,
-            forward: false,
-            backward: false,
-            left: false,
-            right: false,
+            dimentions,
+            position,
+            motion,
+            controls,
             damaged: false,
             texture,
             src_rect: None,
@@ -90,27 +81,30 @@ impl<'a> Car<'a> {
     }
 
     pub fn src_crop_center(&mut self, width: u32, height: u32) {
-        let x = (self.width - width) / 2;
-        let y = (self.height - height) / 2;
+        let x = (self.dimentions.w - width) / 2;
+        let y = (self.dimentions.h - height) / 2;
         self.src_rect = Some(Rect::new(
             (x as i32).max(0),
             (y as i32).max(0),
-            width.min(self.width),
-            height.min(self.height),
+            width.min(self.dimentions.w),
+            height.min(self.dimentions.h),
         ));
-        self.width = width;
-        self.height = height;
+        self.dimentions.w = width;
+        self.dimentions.h = height;
     }
 
-    pub fn set_scale(&mut self, scale: f32) {
+    pub fn set_scale(&mut self, scale: f64) -> Result<(), String> {
         if scale > 0.0 && scale < 1.0 {
-            self.scale = scale;
+            self.dimentions.scale = scale;
+            Ok(())
+        } else {
+            Err("Scale must be between 0 and 1".to_string())
         }
     }
 
     pub fn is_passed_bottom_bound(&self, h: i32, offset: f32) -> bool {
-        let (_, scaled_h) = self.get_scaled_size();
-        let y = self.y - offset;
+        let (_, scaled_h) = self.src_dimentions_scaled();
+        let y = self.position.y - offset;
         y - scaled_h > (h as f32)
     }
 
@@ -124,20 +118,25 @@ impl<'a> Car<'a> {
         cars_alive: &mut i32,
     ) -> Result<(), String> {
         // render texture
-        let (scaled_w, scaled_h) = self.get_scaled_size();
+        let (scaled_w, scaled_h) = self.src_dimentions_scaled();
 
         if !self.damaged {
             self.score += 1;
             // drawing_texture.set_color_mod(64, 64, 64);
         }
 
-        let dst_rect = FRect::new(self.x, self.y as f32 - offset, scaled_w, scaled_h);
+        let dst_rect = FRect::new(
+            self.position.x,
+            self.position.y as f32 - offset,
+            scaled_w,
+            scaled_h,
+        );
 
         canvas.copy_ex_f(
             &self.texture,
             self.src_rect,
             dst_rect,
-            self.angle,
+            self.position.angle,
             None,
             false,
             false,
@@ -201,60 +200,66 @@ impl<'a> Car<'a> {
             let mut buffer = sensor
                 .render(
                     canvas,
-                    self.x,
-                    self.y - offset,
+                    self.position.x,
+                    self.position.y - offset,
                     scaled_w,
                     scaled_h,
-                    self.angle,
+                    self.position.angle,
                     &borders,
                     &traffic,
                     offset,
                     is_best,
                 )
                 .map_err(|e| e.to_string())?;
-			readings.append(&mut buffer);
+            readings.append(&mut buffer);
         }
 
         if self.brain.is_some() {
             let outputs = self.brain.as_mut().unwrap().feed_forward(readings);
             assert_eq!(outputs.len(), 4);
-            self.forward = outputs[0] > 0.5;
-            self.backward = outputs[1] > 0.5;
-            self.left = outputs[2] > 0.5;
-            self.right = outputs[3] > 0.5;
+            self.controls.forward = outputs[0] > 0.5;
+            self.controls.backward = outputs[1] > 0.5;
+            self.controls.left = outputs[2] > 0.5;
+            self.controls.right = outputs[3] > 0.5;
         }
 
         if offset == self.last_y {
             self.same_y_count += 1;
-			self.score -= 100;
+            self.score -= 100;
             if self.same_y_count > 60 {
                 *cars_alive -= 1;
                 self.damaged = true;
             }
-		} else if self.y < self.last_y {
-			self.score += 2;
-		}
-		if self.velocity > self.max_velocity * 0.7 {
-			self.score += 1;
-		}
+        } else if self.position.y < self.last_y {
+            self.score += 2;
+        }
+        if self.motion.velocity > self.motion.max_velocity * 0.7 {
+            self.score += 1;
+        }
         self.last_y = offset;
         Ok(())
     }
 
-    pub fn scaled_width(&self) -> f32 {
-        self.width as f32 * self.scale
+    pub fn scaled_width(&self) -> f64 {
+        self.dimentions.w as f64 * self.dimentions.scale
     }
 
-    pub fn scaled_height(&self) -> f32 {
-        self.height as f32 * self.scale
+    pub fn scaled_height(&self) -> f64 {
+        self.dimentions.h as f64 * self.dimentions.scale
     }
 
-    pub fn get_scaled_size(&self) -> (f32, f32) {
-        let w = self.src_rect.map(|r| r.width()).unwrap_or(self.width) as f32;
-        let h = self.src_rect.map(|r| r.height()).unwrap_or(self.height) as f32;
+    pub fn src_dimentions_scaled(&self) -> (f32, f32) {
+        let w = self
+            .src_rect
+            .map(|r| r.width())
+            .unwrap_or(self.dimentions.w) as f32;
+        let h = self
+            .src_rect
+            .map(|r| r.height())
+            .unwrap_or(self.dimentions.h) as f32;
 
-        let scaled_w = w * self.scale;
-        let scaled_h = h * self.scale;
+        let scaled_w = w * self.dimentions.scale as f32;
+        let scaled_h = h * self.dimentions.scale as f32;
 
         (scaled_w, scaled_h)
     }
@@ -289,10 +294,10 @@ impl<'a> Car<'a> {
     }
 
     pub fn get_rotated_hitbox_points(&self, offset: f32) -> Vec<Point> {
-        let (w, h) = self.get_scaled_size();
-        let center_x = self.x + w / 2.0;
-        let center_y = (self.y - offset) + h / 2.0;
-        let angle_rad = self.angle.to_radians() as f32;
+        let (w, h) = self.src_dimentions_scaled();
+        let center_x = self.position.x + w / 2.0;
+        let center_y = (self.position.y - offset) + h / 2.0;
+        let angle_rad = self.position.angle.to_radians() as f32;
         self.get_hitbox_points(w, h)
             .iter()
             .map(|&(px, py)| {
@@ -305,59 +310,42 @@ impl<'a> Car<'a> {
 
     pub fn update_position(&mut self) {
         if self.damaged {
-            self.velocity = 0.0;
+            self.motion.velocity = 0.0;
             return;
         }
-        if self.forward {
-            if self.velocity < self.max_velocity / 2.0 {
-                self.velocity += self.acceleration / 1.6;
+        if self.controls.forward {
+            if self.motion.velocity < self.motion.max_velocity / 2.0 {
+                self.motion.velocity += self.motion.acceleration / 1.6;
             } else {
-                self.velocity += self.acceleration;
+                self.motion.velocity += self.motion.acceleration;
             }
         }
-        if self.backward {
-            if self.velocity < self.max_velocity / 2.0 {
-                self.velocity -= self.acceleration / 2.0;
+        if self.controls.backward {
+            if self.motion.velocity < self.motion.max_velocity / 2.0 {
+                self.motion.velocity -= self.motion.acceleration / 2.0;
             } else {
-                self.velocity -= self.acceleration / 1.4;
+                self.motion.velocity -= self.motion.acceleration / 1.4;
             }
         }
 
-        self.angle %= 360.0;
+        self.normalize_angle();
+        self.normalize_velocity();
+        self.apply_friction();
 
-        if self.angle < 0.0 {
-            self.angle += 360.0;
-        }
-
-        if self.velocity > self.max_velocity {
-            self.velocity = self.max_velocity;
-        } else if self.velocity < -self.max_velocity / 2.0 {
-            self.velocity = -self.max_velocity / 2.0;
-        }
-
-        if self.velocity > 0.0 {
-            self.velocity -= self.friction;
-        } else if self.velocity < 0.0 {
-            self.velocity += self.friction;
-        }
-        if self.velocity.abs() < self.friction {
-            self.velocity = 0.0;
-        }
-
-        if self.velocity != 0.0 {
-            if self.left {
-                self.angle -= 1.2 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+        if self.motion.velocity != 0.0 && self.motion.velocity > 0.0 {
+            if self.controls.left {
+                self.turn_left_by(1.2);
             }
-            if self.right {
-                self.angle += 1.2 * if self.velocity > 0.0 { 1.0 } else { -1.0 };
+            if self.controls.right && self.motion.velocity > 0.0 {
+                self.turn_right_by(1.2);
             }
         }
 
-        self.x += self.angle.to_radians().sin() as f32 * self.velocity;
-        self.y -= self.angle.to_radians().cos() as f32 * self.velocity;
+        self.position.x += self.position.angle.to_radians().sin() as f32 * self.motion.velocity;
+        self.position.y -= self.position.angle.to_radians().cos() as f32 * self.motion.velocity;
     }
 
-    pub fn update_state(&mut self, event: &Event) {
+    pub fn process_event(&mut self, event: &Event) {
         // if self.damaged || self.brain.is_some() {
         //     return;
         // }
@@ -366,61 +354,151 @@ impl<'a> Car<'a> {
                 keycode: Some(Keycode::Left),
                 ..
             } => {
-                self.left = true;
+                self.controls.left = true;
             }
             Event::KeyUp {
                 keycode: Some(Keycode::Left),
                 ..
             } => {
-                self.left = false;
+                self.controls.left = false;
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Right),
                 ..
             } => {
-                self.right = true;
+                self.controls.right = true;
             }
             Event::KeyUp {
                 keycode: Some(Keycode::Right),
                 ..
             } => {
-                self.right = false;
+                self.controls.right = false;
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Up),
                 ..
             } => {
-                self.forward = true;
+                self.controls.forward = true;
             }
             Event::KeyUp {
                 keycode: Some(Keycode::Up),
                 ..
             } => {
-                self.forward = false;
+                self.controls.forward = false;
             }
             Event::KeyDown {
                 keycode: Some(Keycode::Down),
                 ..
             } => {
-                self.backward = true;
+                self.controls.backward = true;
             }
             Event::KeyUp {
                 keycode: Some(Keycode::Down),
                 ..
             } => {
-                self.backward = false;
+                self.controls.backward = false;
             }
             _ => {}
         }
     }
 
     pub fn as_dummy(&mut self, max_velocity: f32) {
-        self.forward = true;
-        self.acceleration = 0.0;
-        self.velocity = max_velocity;
-        self.friction = 0.0;
+        self.controls.forward = true;
+        self.motion.acceleration = 0.0;
+        self.motion.velocity = max_velocity;
+        self.motion.friction = 0.0;
         self.sensors = vec![];
         self.dummy = true;
         self.brain = None;
+    }
+
+    fn turn_left_by(&mut self, amount: f64) {
+        self.position.angle -= amount
+    }
+
+    fn turn_right_by(&mut self, amount: f64) {
+        self.position.angle += amount
+    }
+
+    fn normalize_angle(&mut self) {
+        self.position.angle %= 360.0;
+        if self.position.angle < 0.0 {
+            self.position.angle += 360.0
+        }
+    }
+
+    fn normalize_velocity(&mut self) {
+        if self.motion.velocity > self.motion.max_velocity {
+            self.motion.velocity = self.motion.max_velocity;
+        } else if self.motion.velocity < -self.motion.max_velocity / 2.0 {
+            self.motion.velocity = -self.motion.max_velocity / 2.0;
+        }
+        if self.motion.velocity.abs() < self.motion.friction {
+            self.motion.velocity = 0.0;
+        }
+    }
+
+    fn apply_friction(&mut self) {
+        if self.motion.velocity > 0.0 {
+            self.motion.velocity -= self.motion.friction;
+        } else if self.motion.velocity < 0.0 {
+            self.motion.velocity += self.motion.friction;
+        }
+    }
+}
+
+pub struct Dimentions {
+    pub w: u32,
+    pub h: u32,
+    pub scale: f64,
+}
+impl Dimentions {
+    pub fn new(w: u32, h: u32, scale: f64) -> Self {
+        Self { w, h, scale }
+    }
+}
+
+pub struct Position {
+    pub x: f32,
+    pub y: f32,
+    pub angle: f64,
+}
+impl Position {
+    pub fn new(x: f32, y: f32, angle: f64) -> Self {
+        Self { x, y, angle }
+    }
+}
+
+pub struct Motion {
+    pub velocity: f32,
+    pub max_velocity: f32,
+    pub acceleration: f32,
+    pub friction: f32,
+}
+impl Motion {
+    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction: f32) -> Self {
+        Self {
+            velocity,
+            max_velocity,
+            acceleration,
+            friction,
+        }
+    }
+}
+
+pub struct Controls {
+    pub forward: bool,
+    pub backward: bool,
+    pub left: bool,
+    pub right: bool,
+}
+impl Controls {
+    pub fn new() -> Self {
+        Self {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+        }
     }
 }

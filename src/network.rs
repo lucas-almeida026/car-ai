@@ -1,6 +1,6 @@
 use crate::fns::lerpf64;
 use serde::{de::Error, Deserialize, Serialize};
-use serde_json::{Result};
+use serde_json::Result;
 
 #[derive(Serialize, Deserialize)]
 pub struct NeuralNetwork {

@@ -42,20 +42,20 @@ fn main() -> Result<(), String> {
     traffic_car_texture.texture.set_color_mod(16, 255, 64);
 
     let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.33) as i32, 3);
-    // let mut car = Car::new(&car_texture.texture, car_texture.width, car_texture.height, None, 0.0)?;
+    let mut car = Car::new(&car_texture.texture, car_texture.width, car_texture.height, None, 0.0)?;
 
-    // car.src_crop_center(194, 380);
-    // car.set_scale(0.3);
-    // car.x = road
-    //     .lane_center(1)
-    //     .map(|x| x - (car.scaled_width() / 2.0))
-    //     .or(Some(w_width as f32 / 2.0 - (car.scaled_width() / 2.0)))
-    //     .unwrap();
-    // car.brain = None;
+    car.src_crop_center(194, 380);
+    car.set_scale(0.3);
+    car.position.x = road
+        .lane_center(1)
+        .map(|x| x - (car.scaled_width() as f32 / 2.0))
+        .or(Some(w_width as f32 / 2.0 - (car.scaled_width() as f32 / 2.0)))
+        .unwrap();
+    car.brain = None;
 
-    let mut ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
-    let mut best_car_index: usize;
-    let mut cars_alive = ai_cars.len() as i32;
+    // let mut ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
+    // let mut best_car_index: usize;
+    // let mut cars_alive = ai_cars.len() as i32;
 
     let mut traffic = generate_traffic(
         5,
@@ -80,30 +80,30 @@ fn main() -> Result<(), String> {
                 } => {
                     break 'running;
                 }
-                Event::MouseButtonDown { x, y, .. } => {
-                    println!("x: {}, y: {}", x, y);
-                }
+                // Event::MouseButtonDown { x, y, .. } => {
+                //     println!("x: {}, y: {}", x, y);
+                // }
                 _ => {}
             }
-            // car.update_state(&event);
+            car.process_event(&event);
         }
-        // car.update_position();
-        for car in ai_cars.iter_mut() {
-            car.update_position();
-        }
+        car.update_position();
+        // for car in ai_cars.iter_mut() {
+        //     car.update_position();
+        // }
 
-        let max_score = ai_cars
-            .iter()
-            .map(|c| c.score)
-            .max()
-            .unwrap_or(0);
-        best_car_index = ai_cars.iter().position(|c| c.score == max_score).unwrap();
+        // let max_score = ai_cars
+        //     .iter()
+        //     .map(|c| c.score)
+        //     .max()
+        //     .unwrap_or(0);
+        // best_car_index = ai_cars.iter().position(|c| c.score == max_score).unwrap();
 
         canvas.set_draw_color(Color::RGB(0, 0, 0));
         canvas.clear();
 
-        let camera_y_offset = ai_cars[best_car_index].y - (w_height as f32 * 0.7);
-        // let camera_y_offset = car.y - (w_height as f32 * 0.7);
+        // let camera_y_offset = ai_cars[best_car_index].position.y - (w_height as f32 * 0.7);
+        let camera_y_offset = car.position.y - (w_height as f32 * 0.7);
 
         road.render(&mut canvas, camera_y_offset)?;
 
@@ -123,16 +123,16 @@ fn main() -> Result<(), String> {
             }
         }
         // let best_car_y = ai_cars.get(best_car_index).unwrap().y;
-        for (i, car) in ai_cars.iter_mut().enumerate() {
-            let is_best = i == best_car_index;
-            car.render(
-                &mut canvas,
-                camera_y_offset,
-                &road.borders,
-                &traffic,
-                is_best,
-                &mut cars_alive,
-            )?;
+        // for (i, car) in ai_cars.iter_mut().enumerate() {
+        //     let is_best = i == best_car_index;
+        //     car.render(
+        //         &mut canvas,
+        //         camera_y_offset,
+        //         &road.borders,
+        //         &traffic,
+        //         is_best,
+        //         &mut cars_alive,
+        //     )?;
             // if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
             //     if !car.damaged {
             //         car.damaged = true;
@@ -140,26 +140,26 @@ fn main() -> Result<(), String> {
             //     }
             // }
             // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
-        }
-        if cars_alive < 4 {
-            let best = &ai_cars[best_car_index];
-			println!("top score: {}", best.score);
-            if best.brain.is_some() {
-                let net = best.brain.as_ref().unwrap();
-                net.save_as_file("networks/best.json")
-                    .expect("failed to save network");
-                ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
-                cars_alive = ai_cars.len() as i32;
-                traffic = generate_traffic(
-                    5,
-                    w_width as f32,
-                    w_height as i32,
-                    &road,
-                    &traffic_car_texture,
-                );
-            }
-        }
-        // car.render(&mut canvas, camera_y_offset, &road.borders, &traffic, true, &mut 0)?;
+        // }
+        // if cars_alive < 4 {
+        //     let best = &ai_cars[best_car_index];
+		// 	println!("top score: {}", best.score);
+        //     if best.brain.is_some() {
+        //         let net = best.brain.as_ref().unwrap();
+        //         net.save_as_file("networks/best.json")
+        //             .expect("failed to save network");
+        //         ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
+        //         cars_alive = ai_cars.len() as i32;
+        //         traffic = generate_traffic(
+        //             5,
+        //             w_width as f32,
+        //             w_height as i32,
+        //             &road,
+        //             &traffic_car_texture,
+        //         );
+        //     }
+        // }
+        car.render(&mut canvas, camera_y_offset, &road.borders, &traffic, true, &mut 0)?;
 
         canvas.present();
 
@@ -197,10 +197,10 @@ fn generate_ai_cars<'a>(amount: u32, w: f32, road: &'a Road, st: &'a SizedTextur
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
         car.set_scale(0.3);
-        car.x = road
+        car.position.x = road
             .lane_center(1)
-            .map(|x| x - (car.scaled_width() / 2.0))
-            .or(Some(w / 2.0 - (car.scaled_width() / 2.0)))
+            .map(|x| x - (car.scaled_width() as f32 / 2.0))
+            .or(Some(w / 2.0 - (car.scaled_width() as f32 / 2.0)))
             .unwrap();
 
         cars.push(car);
@@ -229,11 +229,11 @@ fn generate_traffic<'a>(
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
         car.set_scale(0.3);
-        car.y = -start_y as f32;
-        car.x = road
+        car.position.y = -start_y as f32;
+        car.position.x = road
             .lane_center(lane as u32)
-            .map(|x| x - (car.scaled_width() / 2.0))
-            .or(Some(w / 2.0 - (car.scaled_width() / 2.0)))
+            .map(|x| x - (car.scaled_width() as f32 / 2.0))
+            .or(Some(w / 2.0 - (car.scaled_width() as f32 / 2.0)))
             .unwrap();
         // car.random_filter();
         car.as_dummy(max_velocity);
@@ -248,11 +248,11 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
     let jump_y = rand::thread_rng().gen_range((h * 1.5)..(h * 3.5));
     let lane = rand::thread_rng().gen_range(0..road.lanes);
 
-    car.y -= jump_y as f32;
-    car.x = road
+    car.position.y -= jump_y as f32;
+    car.position.x = road
         .lane_center(lane as u32)
-        .map(|x| x - (car.scaled_width() / 2.0))
-        .or(Some(w / 2.0 - (car.scaled_width() / 2.0)))
+        .map(|x| x - (car.scaled_width() as f32 / 2.0))
+        .or(Some(w / 2.0 - (car.scaled_width() as f32 / 2.0)))
         .unwrap();
     car.as_dummy(max_velocity);
 }
