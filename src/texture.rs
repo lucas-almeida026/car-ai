@@ -1,7 +1,7 @@
 use rand::Rng;
 use sdl2::{
     pixels::PixelFormatEnum,
-    render::{BlendMode, Texture, TextureCreator},
+    render::{Texture, TextureCreator},
     surface::Surface,
     video::WindowContext,
 };

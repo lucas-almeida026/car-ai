@@ -1,4 +1,6 @@
-use crate::fns::lerpf64;
+use std::fs;
+
+use crate::{fns::{self, lerpf64}, gpu};
 use serde::{de::Error, Deserialize, Serialize};
 use serde_json::Result;
 
@@ -21,10 +23,10 @@ impl NeuralNetwork {
 		}
 	}
 
-	pub fn feed_forward(&mut self, inputs: Vec<f64>) -> Vec<f64> {
+	pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
 		let mut outputs = self.levels[0].feed_forward(inputs);
 		for i in 1..self.levels.len() {
-			outputs = self.levels[i].feed_forward(outputs);
+			outputs = self.levels[i].feed_forward(&outputs);
 		}
 		outputs
 	}
@@ -88,7 +90,7 @@ impl Level {
 		}
 	}
 
-	pub fn feed_forward(&mut self, inputs: Vec<f64>) -> Vec<f64>{
+	pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64>{
 		assert_eq!(self.inputs.len(), inputs.len());
 		for i in 0..self.inputs.len() {
 			self.inputs[i] = inputs[i];
@@ -100,11 +102,9 @@ impl Level {
 				sum += self.inputs[j] * self.weights[i][j];
 			}
 
-			if sum > self.biases[i] {
-				self.outputs[i] = 1.0;
-			} else {
-				self.outputs[i] = 0.0;
-			}
+			sum += self.biases[i];
+
+			self.outputs[i] = fns::sigmoid(sum)
 		}
 		self.outputs.clone()
 	}

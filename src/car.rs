@@ -1,6 +1,5 @@
 use std::f64::consts::PI;
 
-use rand::Rng;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
@@ -22,8 +21,8 @@ pub struct Car<'a> {
     controls: Controls,
     pub damaged: bool,
     focused_texture: &'a Texture<'a>,
-	unfocused_texture: &'a Texture<'a>,
-	damaged_texture: &'a Texture<'a>,
+    unfocused_texture: &'a Texture<'a>,
+    damaged_texture: &'a Texture<'a>,
     dummy: bool,
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
@@ -35,8 +34,8 @@ pub struct Car<'a> {
 impl<'a> Car<'a> {
     pub fn new(
         focused: &'a SizedTexture<'a>,
-		unfocused: &'a SizedTexture<'a>,
-		damaged: &'a SizedTexture<'a>,
+        unfocused: &'a SizedTexture<'a>,
+        damaged: &'a SizedTexture<'a>,
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
     ) -> Result<Self, String> {
@@ -46,21 +45,21 @@ impl<'a> Car<'a> {
         let controls = Controls::new();
 
         let sensors = vec![
-            Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopLeft, Facing::Forward),
-            Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
-            Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
-            Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
-            Sensor::new(
-                3,
-                120.0,
-                PI / 2.0,
-                SensorPos::CenterRight,
-                Facing::RightSide,
-            ),
-            Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
+            Sensor::new(15, 180.0, PI * 1.34, SensorPos::Center, Facing::Forward),
+            // Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
+            // Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
+            // Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
+            // Sensor::new(
+            //     3,
+            //     120.0,
+            //     PI / 2.0,
+            //     SensorPos::CenterRight,
+            //     Facing::RightSide,
+            // ),
+            // Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -73,9 +72,9 @@ impl<'a> Car<'a> {
             motion,
             controls,
             damaged: false,
-			focused_texture: &focused.texture,
-			unfocused_texture: &unfocused.texture,
-			damaged_texture: &damaged.texture,
+            focused_texture: &focused.texture,
+            unfocused_texture: &unfocused.texture,
+            damaged_texture: &damaged.texture,
             src_rect: None,
             dummy: false,
             brain: Some(brain),
@@ -138,10 +137,16 @@ impl<'a> Car<'a> {
     ) -> Result<(), String> {
         // render texture
         let (scaled_w, scaled_h) = self.src_dimentions_scaled();
+        let mut drawing_texture = if is_best {
+            self.focused_texture
+        } else {
+            self.unfocused_texture
+        };
 
         if !self.damaged {
             self.score += 1;
-            // drawing_texture.set_color_mod(64, 64, 64);
+        } else {
+            drawing_texture = self.damaged_texture;
         }
 
         let dst_rect = FRect::new(
@@ -152,7 +157,7 @@ impl<'a> Car<'a> {
         );
 
         canvas.copy_ex_f(
-            &self.focused_texture,
+            drawing_texture,
             self.src_rect,
             dst_rect,
             self.position.angle,
@@ -169,34 +174,36 @@ impl<'a> Car<'a> {
             let b = rotated_points[(i + 1) % rotated_points.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
             canvas.draw_line(a, b)?;
-            for border in borders.iter() {
-                let touch = get_intersectionf(
-                    a.x as f32,
-                    a.y as f32,
-                    b.x as f32,
-                    b.y as f32,
-                    border.start.x as f32,
-                    border.start.y as f32,
-                    border.end.x as f32,
-                    border.end.y as f32,
-                );
-                if let Some((p, t)) = touch {
-                    touches.push((Point::new(p.x as i32, p.y as i32), t));
-                }
-            }
-            for car in traffic.iter() {
-                let points = car.get_rotated_hitbox_points(offset);
-
-                for i in 0..points.len() {
-                    let c = points[i];
-                    let d = points[(i + 1) % points.len()];
+            if !self.damaged {
+                for border in borders.iter() {
                     let touch = get_intersectionf(
-                        a.x as f32, a.y as f32, b.x as f32, b.y as f32, c.x as f32, c.y as f32,
-                        d.x as f32, d.y as f32,
+                        a.x as f32,
+                        a.y as f32,
+                        b.x as f32,
+                        b.y as f32,
+                        border.start.x as f32,
+                        border.start.y as f32,
+                        border.end.x as f32,
+                        border.end.y as f32,
                     );
-
                     if let Some((p, t)) = touch {
                         touches.push((Point::new(p.x as i32, p.y as i32), t));
+                    }
+                }
+                for car in traffic.iter() {
+                    let points = car.get_rotated_hitbox_points(offset);
+
+                    for i in 0..points.len() {
+                        let c = points[i];
+                        let d = points[(i + 1) % points.len()];
+                        let touch = get_intersectionf(
+                            a.x as f32, a.y as f32, b.x as f32, b.y as f32, c.x as f32, c.y as f32,
+                            d.x as f32, d.y as f32,
+                        );
+
+                        if let Some((p, t)) = touch {
+                            touches.push((Point::new(p.x as i32, p.y as i32), t));
+                        }
                     }
                 }
             }
@@ -215,26 +222,28 @@ impl<'a> Car<'a> {
         }
 
         let mut readings = vec![];
-        for sensor in self.sensors.iter_mut() {
-            let mut buffer = sensor
-                .render(
-                    canvas,
-                    self.position.x,
-                    self.position.y - offset,
-                    scaled_w,
-                    scaled_h,
-                    self.position.angle,
-                    &borders,
-                    &traffic,
-                    offset,
-                    is_best,
-                )
-                .map_err(|e| e.to_string())?;
-            readings.append(&mut buffer);
+        if !self.damaged {
+            for sensor in self.sensors.iter_mut() {
+                let mut buffer = sensor
+                    .render(
+                        canvas,
+                        self.position.x,
+                        self.position.y - offset,
+                        scaled_w,
+                        scaled_h,
+                        self.position.angle,
+                        &borders,
+                        &traffic,
+                        offset,
+                        is_best,
+                    )
+                    .map_err(|e| e.to_string())?;
+                readings.append(&mut buffer);
+            }
         }
 
-        if self.brain.is_some() {
-            let outputs = self.brain.as_mut().unwrap().feed_forward(readings);
+        if self.brain.is_some() && !self.damaged {
+            let outputs = self.brain.as_mut().unwrap().feed_forward(&readings);
             assert_eq!(outputs.len(), 4);
             self.controls.forward = outputs[0] > 0.5;
             self.controls.backward = outputs[1] > 0.5;
@@ -245,12 +254,14 @@ impl<'a> Car<'a> {
         if offset == self.last_y {
             self.same_y_count += 1;
             self.score -= 100;
-            if self.same_y_count > 60 {
+            if self.same_y_count > 60 && !self.damaged {
                 *cars_alive -= 1;
                 self.damaged = true;
             }
         } else if self.position.y < self.last_y {
             self.score += 2;
+        } else if self.damaged {
+            self.score = -100_000_000;
         }
         if self.motion.velocity > self.motion.max_velocity * 0.7 {
             self.score += 1;
@@ -585,13 +596,9 @@ pub fn create_traffic_texture_pool<'a>(
     size: u32,
 ) -> Result<TexturePool<'a>, String> {
     let mut pool = TexturePool::new(size, tc)?;
-	let colors = [
-		(32, 64, 255),
-		(255, 32, 64),
-		(32, 255, 64),
-	];
+    let colors = [(32, 64, 255), (255, 32, 64), (32, 255, 64)];
     for (i, t) in pool.pool.iter_mut().enumerate() {
-		let color = colors[i % colors.len()];
+        let color = colors[i % colors.len()];
         t.texture.set_blend_mode(BlendMode::Blend);
         t.texture.set_alpha_mod(192);
         t.texture.set_color_mod(color.0, color.1, color.2);

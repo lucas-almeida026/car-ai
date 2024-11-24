@@ -35,3 +35,7 @@ pub fn get_intersectionf(
 	}
 	None
 }
+
+pub fn sigmoid(f: f64) -> f64 {
+	1.0 / (1.0 + (-f).exp())
+}
