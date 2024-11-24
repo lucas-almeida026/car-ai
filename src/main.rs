@@ -14,8 +14,11 @@ mod fns;
 mod network;
 mod road;
 mod sensor;
+mod texture;
+
 use car::{Car, ControlledCar};
 use road::Road;
+use texture::{SizedTexture, TexturePool};
 // use sensor::Sensor;
 
 fn main() -> Result<(), String> {
@@ -30,39 +33,41 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let amount_cars = 200;
+	let traffic_size = 5;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
-    let texture_creator = canvas.texture_creator();
-    let mut car_texture = load_texture("assets/car.png", &texture_creator)?;
-    car_texture.texture.set_blend_mode(BlendMode::Blend);
-    car_texture.texture.set_alpha_mod(128);
 
-    let mut traffic_car_texture = load_texture("assets/car.png", &texture_creator)?;
-    traffic_car_texture.texture.set_blend_mode(BlendMode::Blend);
-    traffic_car_texture.texture.set_alpha_mod(128);
-    traffic_car_texture.texture.set_color_mod(16, 255, 64);
+    let texture_creator = canvas.texture_creator();
+    let focused_texture = car::create_main_texture(&texture_creator)?;
+    let unfocused_texture = car::create_unfocused_texture(&texture_creator)?;
+    let damaged_texture = car::create_damaged_texture(&texture_creator)?;
+	let texture_pool = car::create_traffic_texture_pool(&texture_creator, traffic_size)?;
 
     let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.33) as i32, 3);
-    let mut car = Car::new(&car_texture.texture, car_texture.width, car_texture.height, None, 0.0)?;
+    let mut car = Car::new(
+        &focused_texture,
+        &unfocused_texture,
+        &damaged_texture,
+        None,
+        0.0,
+    )?;
 
     car.src_crop_center(194, 380);
-    car.set_scale(0.3);
-    car.position.x = road
-        .lane_center(1)
-        .map(|x| x - (car.scaled_width() as f32 / 2.0))
-        .or(Some(w_width as f32 / 2.0 - (car.scaled_width() as f32 / 2.0)))
-        .unwrap();
-	let mut controlled_car = ControlledCar::new(car);
+    car.set_scale(0.3)?;
+    car.set_in_lane(&road, 1)?;
+    let mut controlled_car = ControlledCar::new(car);
 
     // let mut ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
     // let mut best_car_index: usize;
     // let mut cars_alive = ai_cars.len() as i32;
 
     let mut traffic = generate_traffic(
-        5,
+		traffic_size,
         w_width as f32,
         w_height as i32,
         &road,
-        &traffic_car_texture,
+        &texture_pool,
+		&unfocused_texture,
+		&damaged_texture
     );
 
     let mut event_pump = sdl_context.event_pump()?;
@@ -130,17 +135,17 @@ fn main() -> Result<(), String> {
         //         is_best,
         //         &mut cars_alive,
         //     )?;
-            // if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
-            //     if !car.damaged {
-            //         car.damaged = true;
-            //         cars_alive -= 1;
-            //     }
-            // }
-            // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
+        // if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
+        //     if !car.damaged {
+        //         car.damaged = true;
+        //         cars_alive -= 1;
+        //     }
+        // }
+        // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
         // }
         // if cars_alive < 4 {
         //     let best = &ai_cars[best_car_index];
-		// 	println!("top score: {}", best.score);
+        // 	println!("top score: {}", best.score);
         //     if best.brain.is_some() {
         //         let net = best.brain.as_ref().unwrap();
         //         net.save_as_file("networks/best.json")
@@ -148,7 +153,7 @@ fn main() -> Result<(), String> {
         //         ai_cars = generate_ai_cars(amount_cars, w_width as f32, &road, &car_texture);
         //         cars_alive = ai_cars.len() as i32;
         //         traffic = generate_traffic(
-        //             5,
+        //             traffic_size,
         //             w_width as f32,
         //             w_height as i32,
         //             &road,
@@ -156,7 +161,14 @@ fn main() -> Result<(), String> {
         //         );
         //     }
         // }
-        controlled_car.render(&mut canvas, camera_y_offset, &road.borders, &traffic, true, &mut 0)?;
+        controlled_car.render(
+            &mut canvas,
+            camera_y_offset,
+            &road.borders,
+            &traffic,
+            true,
+            &mut 0,
+        )?;
 
         canvas.present();
 
@@ -171,7 +183,14 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn generate_ai_cars<'a>(amount: u32, w: f32, road: &'a Road, st: &'a SizedTexture) -> Vec<Car<'a>> {
+fn generate_ai_cars<'a>(
+    amount: u32,
+    w: f32,
+    road: &'a Road,
+    fc: &'a SizedTexture,
+    uf: &'a SizedTexture,
+    dm: &'a SizedTexture,
+) -> Vec<Car<'a>> {
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
 
@@ -182,18 +201,14 @@ fn generate_ai_cars<'a>(amount: u32, w: f32, road: &'a Road, st: &'a SizedTextur
     }
 
     for i in 0..amount {
-		let t = if i < 30 {
-			0.666
-		} else {
-			0.98
-		};
-        car = Car::new(&st.texture, st.width, st.height, ref_brain.as_ref(), t);
+        let t = if i < 30 { 0.666 } else { 0.98 };
+        car = Car::new(fc, uf, dm, ref_brain.as_ref(), t);
         if car.is_err() {
             continue;
         }
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
-        car.set_scale(0.3);
+        let _ = car.set_scale(0.3);
         car.position.x = road
             .lane_center(1)
             .map(|x| x - (car.scaled_width() as f32 / 2.0))
@@ -210,22 +225,25 @@ fn generate_traffic<'a>(
     w: f32,
     h: i32,
     road: &'a Road,
-    st: &'a SizedTexture,
+    pool: &'a TexturePool,
+    uf: &'a SizedTexture,
+    dm: &'a SizedTexture,
 ) -> Vec<Car<'a>> {
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
     for i in 0..amount {
-        car = Car::new(&st.texture, st.width, st.height, None, 0.0);
+		let fc = pool.get();
+        car = Car::new(fc, uf, dm, None, 0.0);
         if car.is_err() {
             continue;
         }
         let max_velocity = rand::thread_rng().gen_range(6.0..8.5);
-        let start_y = rand::thread_rng().gen_range((h as f32 * 0.75)..(h as f32 * 2.0));
+        let start_y = rand::thread_rng().gen_range((h as f32 * 0.3)..(h as f32 * 1.3));
         let lane = i as i32 % road.lanes;
 
         let mut car = car.unwrap();
         car.src_crop_center(194, 380);
-        car.set_scale(0.3);
+        let _ = car.set_scale(0.3);
         car.position.y = -start_y as f32;
         car.position.x = road
             .lane_center(lane as u32)
@@ -252,41 +270,4 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
         .or(Some(w / 2.0 - (car.scaled_width() as f32 / 2.0)))
         .unwrap();
     car.as_dummy(max_velocity);
-}
-
-fn load_texture<'a>(
-    path: &str,
-    tc: &'a TextureCreator<WindowContext>,
-) -> Result<SizedTexture<'a>, String> {
-    let mut img_buf = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
-    let (width, height) = (img_buf.width(), img_buf.height());
-
-    let surface = Surface::from_data(
-        &mut img_buf,
-        width,
-        height,
-        width * 4,
-        PixelFormatEnum::ABGR8888,
-    )
-    .map_err(|e| e.to_string())?;
-
-    let texture = tc
-        .create_texture_from_surface(&surface)
-        .map_err(|e| e.to_string())?;
-    Ok(SizedTexture::new(texture, width, height))
-}
-
-struct SizedTexture<'a> {
-    texture: Texture<'a>,
-    width: u32,
-    height: u32,
-}
-impl<'a> SizedTexture<'a> {
-    fn new(texture: Texture<'a>, width: u32, height: u32) -> SizedTexture<'a> {
-        SizedTexture {
-            texture,
-            width,
-            height,
-        }
-    }
 }

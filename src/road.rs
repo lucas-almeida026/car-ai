@@ -1,5 +1,6 @@
 use crate::fns;
 
+use rand::Rng;
 use sdl2::pixels::Color;
 use sdl2::rect::{FPoint, Point, Rect};
 use sdl2::render::Canvas;
@@ -100,6 +101,10 @@ impl Road {
             None
         }
     }
+
+	pub fn random_lane_idx(&self) -> u32 {
+		rand::thread_rng().gen_range(0..(self.lanes as u32))
+	}
 }
 
 pub struct Border {

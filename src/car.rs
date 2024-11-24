@@ -1,16 +1,18 @@
 use std::f64::consts::PI;
 
+use rand::Rng;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::{FRect, Point, Rect};
-use sdl2::render::{Canvas, Texture};
-use sdl2::video::Window;
+use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
+use sdl2::video::{Window, WindowContext};
 
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
-use crate::road::Border;
+use crate::road::{Border, Road};
 use crate::sensor::{Facing, Sensor, SensorPos};
+use crate::texture::{self, SizedTexture, TexturePool};
 
 pub struct Car<'a> {
     dimentions: Dimentions,
@@ -19,7 +21,9 @@ pub struct Car<'a> {
     motion: Motion,
     controls: Controls,
     pub damaged: bool,
-    texture: &'a Texture<'a>,
+    focused_texture: &'a Texture<'a>,
+	unfocused_texture: &'a Texture<'a>,
+	damaged_texture: &'a Texture<'a>,
     dummy: bool,
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
@@ -30,13 +34,13 @@ pub struct Car<'a> {
 
 impl<'a> Car<'a> {
     pub fn new(
-        texture: &'a Texture<'a>,
-        width: u32,
-        height: u32,
+        focused: &'a SizedTexture<'a>,
+		unfocused: &'a SizedTexture<'a>,
+		damaged: &'a SizedTexture<'a>,
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
     ) -> Result<Self, String> {
-        let dimentions = Dimentions::new(width, height, 1.0);
+        let dimentions = Dimentions::new(focused.width, focused.height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
         let motion = Motion::new(0.0, 10.0, 0.4, 0.08);
         let controls = Controls::new();
@@ -69,7 +73,9 @@ impl<'a> Car<'a> {
             motion,
             controls,
             damaged: false,
-            texture,
+			focused_texture: &focused.texture,
+			unfocused_texture: &unfocused.texture,
+			damaged_texture: &damaged.texture,
             src_rect: None,
             dummy: false,
             brain: Some(brain),
@@ -100,6 +106,19 @@ impl<'a> Car<'a> {
         } else {
             Err("Scale must be between 0 and 1".to_string())
         }
+    }
+
+    pub fn set_in_lane(&mut self, road: &Road, idx: u32) -> Result<(), String> {
+        let lane_center = road
+            .lane_center(idx)
+            .map(|x| x - (self.scaled_width() as f32 / 2.0));
+
+        if lane_center.is_none() {
+            return Err("Could not find lane center".to_string());
+        }
+
+        self.position.x = lane_center.unwrap();
+        Ok(())
     }
 
     pub fn is_passed_bottom_bound(&self, h: i32, offset: f32) -> bool {
@@ -133,7 +152,7 @@ impl<'a> Car<'a> {
         );
 
         canvas.copy_ex_f(
-            &self.texture,
+            &self.focused_texture,
             self.src_rect,
             dst_rect,
             self.position.angle,
@@ -532,4 +551,50 @@ impl<'a> ControlledCar<'a> {
             _ => {}
         }
     }
+}
+
+pub fn create_main_texture<'a>(
+    tc: &'a TextureCreator<WindowContext>,
+) -> Result<SizedTexture<'a>, String> {
+    let mut main = texture::from_file("assets/car.png", &tc)?;
+    main.texture.set_blend_mode(BlendMode::Blend);
+    Ok(main)
+}
+
+pub fn create_damaged_texture<'a>(
+    tc: &'a TextureCreator<WindowContext>,
+) -> Result<SizedTexture<'a>, String> {
+    let mut damaged = texture::from_file("assets/car.png", &tc)?;
+    damaged.texture.set_blend_mode(BlendMode::Blend);
+    damaged.texture.set_alpha_mod(128);
+    damaged.texture.set_color_mod(64, 64, 64);
+    Ok(damaged)
+}
+
+pub fn create_unfocused_texture<'a>(
+    tc: &'a TextureCreator<WindowContext>,
+) -> Result<SizedTexture<'a>, String> {
+    let mut unfocused = texture::from_file("assets/car.png", &tc)?;
+    unfocused.texture.set_blend_mode(BlendMode::Blend);
+    unfocused.texture.set_alpha_mod(128);
+    Ok(unfocused)
+}
+
+pub fn create_traffic_texture_pool<'a>(
+    tc: &'a TextureCreator<WindowContext>,
+    size: u32,
+) -> Result<TexturePool<'a>, String> {
+    let mut pool = TexturePool::new(size, tc)?;
+	let colors = [
+		(32, 64, 255),
+		(255, 32, 64),
+		(32, 255, 64),
+	];
+    for (i, t) in pool.pool.iter_mut().enumerate() {
+		let color = colors[i % colors.len()];
+        t.texture.set_blend_mode(BlendMode::Blend);
+        t.texture.set_alpha_mod(192);
+        t.texture.set_color_mod(color.0, color.1, color.2);
+    }
+    Ok(pool)
 }
