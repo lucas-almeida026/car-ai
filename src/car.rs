@@ -50,8 +50,9 @@ impl<'a> Car<'a> {
         let controls = Controls::new();
 
         let sensors = vec![
-            Sensor::new(36, 220.0, PI * 1.5, SensorPos::Center, Facing::Forward),
-            Sensor::new(28, 420.0, PI * 0.3, SensorPos::Center, Facing::Forward),
+            Sensor::new(18, 210.0, PI * 1.5, SensorPos::Center, Facing::Forward),
+            Sensor::new(11, 380.0, PI * 0.3, SensorPos::Center, Facing::Forward),
+            Sensor::new(3, 520.0, PI * 0.15, SensorPos::Center, Facing::Forward),
             // Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
             // Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
             // Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
@@ -65,7 +66,7 @@ impl<'a> Car<'a> {
             // Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 128, 128, 64, 32, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -408,7 +409,8 @@ impl<'a> Car<'a> {
 				let target_x = road.lane_center(self.target_lane).unwrap();
 				let xmin = target_x - 2.0;
 				let xmax = target_x + 2.0;
-				if self.position.x > xmin && self.position.x < xmax {
+				let x = self.position.x + (self.dimentions.w as f32 / 2.0);
+				if x > xmin && self.position.x < xmax {
 					self.position.angle = 0.0;
 					self.changing_lane = false;
 				}
