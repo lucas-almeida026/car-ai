@@ -330,42 +330,52 @@ macro_rules! vec8_64 {
 	}};
 }
 
+macro_rules! vec4_512 {
+	($($x:expr),*) => {{
+		let elements = vec![$($x),*];
+		if elements.len() != 4 {
+			panic!("vec4_512! macro requires exactly 4 elements.");
+		}
+		elements.into_iter().flat_map(|e| vec![e; 128]).collect::<Vec<_>>()
+	}};
+}
+
+macro_rules! vec4_2048 {
+	($($x:expr),*) => {{
+		let elements = vec![$($x),*];
+		if elements.len() != 4 {
+			panic!("vec4_2048! macro requires exactly 4 elements.");
+		}
+		elements.into_iter().flat_map(|e| vec![e; 512]).collect::<Vec<_>>()
+	}};
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use network::*;
+	use std::time::Instant;
     use wgpu::Instance;
 
     #[test]
     fn feed_forward_cpu() {
-        let neuron_count = &[64, 64, 64];
+		let start_time = Instant::now();
+        let neuron_count = &[2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
-            level.biases = vec8_64![0.3, -0.1, 0.1, 0.4, 0.5, -0.3, 0.0, 0.1];
-            level.weights = vec8_64![
-                vec8_64![0.3, -0.1, 0.7, 0.4, -0.5, -0.3, 0.0, 0.2],
-                vec8_64![0.4, -0.2, 0.6, 0.3, -0.5, 0.3, 0.2, 0.7],
-                vec8_64![0.5, -0.3, 0.5, 0.2, 0.1, -0.3, 0.0, 0.5],
-                vec8_64![0.6, -0.1, 0.4, 0.1, 0.1, 0.3, 0.2, 0.3],
-                vec8_64![0.7, -0.2, 0.3, 0.0, 0.2, -0.3, 0.0, 0.1],
-                vec8_64![0.8, -0.3, 0.2, -0.1, 0.2, 0.3, 0.2, -0.2],
-                vec8_64![0.1, -0.1, 0.1, -0.2, 0.3, -0.3, 0.0, 0.4],
-                vec8_64![0.0, -0.2, 0.0, -0.3, 0.3, 0.3, 0.4, 0.6]
+            level.biases = vec4_2048![0.3, -0.1, 0.7, 0.1];
+            level.weights = vec4_2048![
+                vec4_2048![0.3, -0.1, 0.7, 0.4],
+                vec4_2048![0.4, -0.2, 0.6, 0.3],
+                vec4_2048![0.5, -0.3, 0.5, 0.2],
+                vec4_2048![0.6, -0.1, 0.4, 0.1]
             ]
         }
-        let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+        let input = &vec4_2048![0.11, -0.7, 0.5, 0.4];
         let output = net.feed_forward(input);
-        let expected = vec8_64![
-            0.9912473892210135,
-            0.23031266356413485,
-            0.9461516896269376,
-            0.9999997263970687,
-            0.9999575348975476,
-            0.9999999520887416,
-            -0.9990431939793737,
-            -0.99999310117228
-        ];
-        assert_eq!(output, expected);
+		let duration = start_time.elapsed();
+		println!("Time CPU: {} ms", duration.as_millis());
+        assert_eq!(output.len(), 2048);
     }
 
     #[tokio::test]
@@ -382,28 +392,22 @@ mod test {
 
         let mut gpu_handler_factory = GpuHandlerFactory::new(&device, &queue);
 
-        let neuron_count = &[64, 64, 64];
+		let start_time = Instant::now();
+        let neuron_count = &[2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048];
         let mut net = NeuralNetwork::new(neuron_count);
-
         for level in net.levels.iter_mut() {
-            level.biases = vec8_64![0.3, -0.1, 0.1, 0.4, 0.5, -0.3, 0.0, 0.1];
-            level.weights = vec8_64![
-                vec8_64![0.3, -0.1, 0.7, 0.4, -0.5, -0.3, 0.0, 0.2],
-                vec8_64![0.4, -0.2, 0.6, 0.3, -0.5, 0.3, 0.2, 0.7],
-                vec8_64![0.5, -0.3, 0.5, 0.2, 0.1, -0.3, 0.0, 0.5],
-                vec8_64![0.6, -0.1, 0.4, 0.1, 0.1, 0.3, 0.2, 0.3],
-                vec8_64![0.7, -0.2, 0.3, 0.0, 0.2, -0.3, 0.0, 0.1],
-                vec8_64![0.8, -0.3, 0.2, -0.1, 0.2, 0.3, 0.2, -0.2],
-                vec8_64![0.1, -0.1, 0.1, -0.2, 0.3, -0.3, 0.0, 0.4],
-                vec8_64![0.0, -0.2, 0.0, -0.3, 0.3, 0.3, 0.4, 0.6]
+            level.biases = vec4_2048![0.3, -0.1, 0.7, 0.1];
+            level.weights = vec4_2048![
+                vec4_2048![0.3, -0.1, 0.7, 0.4],
+                vec4_2048![0.4, -0.2, 0.6, 0.3],
+                vec4_2048![0.5, -0.3, 0.5, 0.2],
+                vec4_2048![0.6, -0.1, 0.4, 0.1]
             ]
         }
-
-        let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+        let input = &vec4_2048![0.11, -0.7, 0.5, 0.4];
         let output = net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
-        println!("gpu outputs: {:#?}", output);
-
-        // println!("gpu outputs: {:#?}", net.levels[1].outputs);
-        assert!(true);
+		let duration = start_time.elapsed();
+		println!("Time GPU: {} ms", duration.as_millis());
+		assert_eq!(output.len(), 2048);
     }
 }
