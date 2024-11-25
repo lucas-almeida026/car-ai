@@ -320,33 +320,14 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
     car.as_dummy(max_velocity);
 }
 
-macro_rules! vec8_64 {
-	($($x:expr),*) => {{
-		let elements = vec![$($x),*];
-		if elements.len() != 8 {
-			panic!("vec8_64! macro requires exactly 8 elements.");
-		}
-		elements.into_iter().flat_map(|e| vec![e; 8]).collect::<Vec<_>>()
-	}};
-}
 
-macro_rules! vec4_512 {
+macro_rules! vec4_4096 {
 	($($x:expr),*) => {{
 		let elements = vec![$($x),*];
 		if elements.len() != 4 {
-			panic!("vec4_512! macro requires exactly 4 elements.");
+			panic!("vec4_4096! macro requires exactly 4 elements.");
 		}
-		elements.into_iter().flat_map(|e| vec![e; 128]).collect::<Vec<_>>()
-	}};
-}
-
-macro_rules! vec4_2048 {
-	($($x:expr),*) => {{
-		let elements = vec![$($x),*];
-		if elements.len() != 4 {
-			panic!("vec4_2048! macro requires exactly 4 elements.");
-		}
-		elements.into_iter().flat_map(|e| vec![e; 512]).collect::<Vec<_>>()
+		elements.into_iter().flat_map(|e| vec![e; 1024]).collect::<Vec<_>>()
 	}};
 }
 
@@ -360,22 +341,22 @@ mod test {
     #[test]
     fn feed_forward_cpu() {
 		let start_time = Instant::now();
-        let neuron_count = &[2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048];
+        let neuron_count = &[4096, 4096, 4096, 4096, 4096];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
-            level.biases = vec4_2048![0.3, -0.1, 0.7, 0.1];
-            level.weights = vec4_2048![
-                vec4_2048![0.3, -0.1, 0.7, 0.4],
-                vec4_2048![0.4, -0.2, 0.6, 0.3],
-                vec4_2048![0.5, -0.3, 0.5, 0.2],
-                vec4_2048![0.6, -0.1, 0.4, 0.1]
+            level.biases = vec4_4096![0.3, -0.1, 0.7, 0.1];
+            level.weights = vec4_4096![
+                vec4_4096![0.3, -0.1, 0.7, 0.4],
+                vec4_4096![0.4, -0.2, 0.6, 0.3],
+                vec4_4096![0.5, -0.3, 0.5, 0.2],
+                vec4_4096![0.6, -0.1, 0.4, 0.1]
             ]
         }
-        let input = &vec4_2048![0.11, -0.7, 0.5, 0.4];
+        let input = &vec4_4096![0.11, -0.7, 0.5, 0.4];
         let output = net.feed_forward(input);
 		let duration = start_time.elapsed();
 		println!("Time CPU: {} ms", duration.as_millis());
-        assert_eq!(output.len(), 2048);
+        assert_eq!(output.len(), 4096);
     }
 
     #[tokio::test]
@@ -393,21 +374,21 @@ mod test {
         let mut gpu_handler_factory = GpuHandlerFactory::new(&device, &queue);
 
 		let start_time = Instant::now();
-        let neuron_count = &[2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048, 2048];
+        let neuron_count = &[4096, 4096, 4096, 4096, 4096];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
-            level.biases = vec4_2048![0.3, -0.1, 0.7, 0.1];
-            level.weights = vec4_2048![
-                vec4_2048![0.3, -0.1, 0.7, 0.4],
-                vec4_2048![0.4, -0.2, 0.6, 0.3],
-                vec4_2048![0.5, -0.3, 0.5, 0.2],
-                vec4_2048![0.6, -0.1, 0.4, 0.1]
+            level.biases = vec4_4096![0.3, -0.1, 0.7, 0.1];
+            level.weights = vec4_4096![
+                vec4_4096![0.3, -0.1, 0.7, 0.4],
+                vec4_4096![0.4, -0.2, 0.6, 0.3],
+                vec4_4096![0.5, -0.3, 0.5, 0.2],
+                vec4_4096![0.6, -0.1, 0.4, 0.1]
             ]
         }
-        let input = &vec4_2048![0.11, -0.7, 0.5, 0.4];
+        let input = &vec4_4096![0.11, -0.7, 0.5, 0.4];
         let output = net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
 		let duration = start_time.elapsed();
 		println!("Time GPU: {} ms", duration.as_millis());
-		assert_eq!(output.len(), 2048);
+		assert_eq!(output.len(), 4096);
     }
 }
