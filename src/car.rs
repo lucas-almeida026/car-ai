@@ -10,7 +10,7 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
-use crate::road::{self, Border, Road};
+use crate::road::{Border, Road};
 use crate::sensor::{Facing, Sensor, SensorPos};
 use crate::texture::{self, SizedTexture, TexturePool};
 
@@ -33,6 +33,7 @@ pub struct Car<'a> {
 	target_lane: u32,
 	current_lane: u32,
     same_y_count: u32,
+	hitbox: Vec<Point>,
 }
 
 impl<'a> Car<'a> {
@@ -92,6 +93,7 @@ impl<'a> Car<'a> {
 			target_lane: current_lane,
 			current_lane,
 			changing_lane: false,
+			hitbox: vec![],
         })
     }
 
@@ -177,11 +179,11 @@ impl<'a> Car<'a> {
         )?;
 
         // render hitbox
-        let rotated_points: Vec<Point> = self.get_rotated_hitbox_points(offset);
+        self.hitbox = self.rotate_hitbox_points(offset);
 
-        for i in 0..rotated_points.len() {
-            let a = rotated_points[i];
-            let b = rotated_points[(i + 1) % rotated_points.len()];
+        for i in 0..self.hitbox.len() {
+            let a = self.hitbox[i];
+            let b = self.hitbox[(i + 1) % self.hitbox.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
             canvas.draw_line(a, b)?;
             if !self.damaged {
@@ -201,7 +203,7 @@ impl<'a> Car<'a> {
                     }
                 }
                 for car in traffic.iter() {
-                    let points = car.get_rotated_hitbox_points(offset);
+                    let points = car.rotate_hitbox_points(offset);
 
                     for i in 0..points.len() {
                         let c = points[i];
@@ -336,7 +338,9 @@ impl<'a> Car<'a> {
         points
     }
 
-    pub fn get_rotated_hitbox_points(&self, offset: f32) -> Vec<Point> {
+	pub fn hitbox (&self) -> &Vec<Point> { &self.hitbox }
+
+    pub fn rotate_hitbox_points(&self, offset: f32) -> Vec<Point> {
         let (w, h) = self.src_dimentions_scaled();
         let center_x = self.position.x + w / 2.0;
         let center_y = (self.position.y - offset) + h / 2.0;

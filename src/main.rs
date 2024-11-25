@@ -27,7 +27,7 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 230;
+    let amount_cars = 430;
     let traffic_size = 5;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 

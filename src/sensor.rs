@@ -132,8 +132,7 @@ impl Ray {
         }
 
         for car in traffic.iter() {
-            let points = car.get_rotated_hitbox_points(offset);
-
+			let points = car.hitbox();
             for i in 0..points.len() {
                 let a = points[i];
                 let b = points[(i + 1) % points.len()];
