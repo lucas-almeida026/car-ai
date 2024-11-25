@@ -1,6 +1,6 @@
 use network::NeuralNetwork;
 use rand::Rng;
-use sdl2::{event::Event, keyboard::Keycode, libc::useconds_t, pixels::Color};
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 use std::time::{Duration, Instant};
 
 mod car;
