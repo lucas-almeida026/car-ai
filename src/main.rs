@@ -320,20 +320,89 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
     car.as_dummy(max_velocity);
 }
 
+macro_rules! vec8_64 {
+	($($x:expr),*) => {{
+		let elements = vec![$($x),*];
+		if elements.len() != 8 {
+			panic!("vec8_64! macro requires exactly 8 elements.");
+		}
+		elements.into_iter().flat_map(|e| vec![e; 8]).collect::<Vec<_>>()
+	}};
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use network::*;
+    use wgpu::Instance;
 
     #[test]
     fn feed_forward_cpu() {
-        let neuron_count = &[2, 2, 2];
+        let neuron_count = &[64, 64, 64];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
-            level.biases = vec![0.3, -0.1];
-            level.weights = vec![vec![-0.1, 0.2], vec![0.3, -0.4]]
+            level.biases = vec8_64![0.3, -0.1, 0.1, 0.4, 0.5, -0.3, 0.0, 0.1];
+            level.weights = vec8_64![
+                vec8_64![0.3, -0.1, 0.7, 0.4, -0.5, -0.3, 0.0, 0.2],
+                vec8_64![0.4, -0.2, 0.6, 0.3, -0.5, 0.3, 0.2, 0.7],
+                vec8_64![0.5, -0.3, 0.5, 0.2, 0.1, -0.3, 0.0, 0.5],
+                vec8_64![0.6, -0.1, 0.4, 0.1, 0.1, 0.3, 0.2, 0.3],
+                vec8_64![0.7, -0.2, 0.3, 0.0, 0.2, -0.3, 0.0, 0.1],
+                vec8_64![0.8, -0.3, 0.2, -0.1, 0.2, 0.3, 0.2, -0.2],
+                vec8_64![0.1, -0.1, 0.1, -0.2, 0.3, -0.3, 0.0, 0.4],
+                vec8_64![0.0, -0.2, 0.0, -0.3, 0.3, 0.3, 0.4, 0.6]
+            ]
         }
-        let output = net.feed_forward(&vec![0.1, 0.42]);
-        let expected = [0.5814949520460782, 0.47537390107617306];
+		let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+        let output = net.feed_forward(input);
+        let expected = vec8_64![
+            0.9912473892210135,
+            0.23031266356413485,
+            0.9461516896269376,
+            0.9999997263970687,
+            0.9999575348975476,
+            0.9999999520887416,
+            -0.9990431939793737,
+            -0.99999310117228
+        ];
         assert_eq!(output, expected);
+    }
+
+    #[tokio::test]
+    async fn feed_forward_gpu() {
+        let instance = Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions::default())
+            .await
+            .expect("Failed to find a GPU adapter");
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor::default(), None)
+            .await
+            .expect("Failed to create device");
+
+        let mut gpu_handler_factory = GpuHandlerFactory::new(&device, &queue);
+		
+		let neuron_count = &[64, 64, 64];
+        let mut net = NeuralNetwork::new(neuron_count);
+
+		for level in net.levels.iter_mut() {
+            level.biases = vec8_64![0.3, -0.1, 0.1, 0.4, 0.5, -0.3, 0.0, 0.1];
+            level.weights = vec8_64![
+                vec8_64![0.3, -0.1, 0.7, 0.4, -0.5, -0.3, 0.0, 0.2],
+                vec8_64![0.4, -0.2, 0.6, 0.3, -0.5, 0.3, 0.2, 0.7],
+                vec8_64![0.5, -0.3, 0.5, 0.2, 0.1, -0.3, 0.0, 0.5],
+                vec8_64![0.6, -0.1, 0.4, 0.1, 0.1, 0.3, 0.2, 0.3],
+                vec8_64![0.7, -0.2, 0.3, 0.0, 0.2, -0.3, 0.0, 0.1],
+                vec8_64![0.8, -0.3, 0.2, -0.1, 0.2, 0.3, 0.2, -0.2],
+                vec8_64![0.1, -0.1, 0.1, -0.2, 0.3, -0.3, 0.0, 0.4],
+                vec8_64![0.0, -0.2, 0.0, -0.3, 0.3, 0.3, 0.4, 0.6]
+            ]
+        }
+
+		let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+		net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
+
+		println!("gpu outputs: {:#?}", net.levels[2].outputs);
+        assert!(true);
     }
 }

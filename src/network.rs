@@ -42,6 +42,14 @@ impl NeuralNetwork {
         outputs
     }
 
+	pub async fn gpu_feed_forward<'a>(&mut self, inputs: &Vec<f64>,gpu_handler_factory: &mut GpuHandlerFactory<'a>) {
+		self.levels[0].gpu_feed_forward(inputs, gpu_handler_factory).await;
+		for i in 1..self.levels.len() {
+			let inputs = self.levels[i - 1].outputs.clone();
+			self.levels[i].gpu_feed_forward(&inputs, gpu_handler_factory).await;
+		}
+	}
+
     pub fn prune(&mut self, base: &NeuralNetwork, t: f64) {
         for (x, level) in self.levels.iter_mut().enumerate() {
             for i in 0..level.biases.len() {
@@ -136,12 +144,12 @@ impl Level {
         );
         let mut gpu_handler = gpu_handler_factory.create_handler(matrix_buffer);
         gpu_handler.dispatch();
-		let outputs = gpu_handler.retrive_results().await;
+		let outputs = gpu_handler.read_staging_buffer().await;
 		self.outputs = outputs;
     }
 }
 
-struct GpuHandlerFactory<'a> {
+pub struct GpuHandlerFactory<'a> {
     pub device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     shader: wgpu::ShaderModule,
@@ -149,7 +157,7 @@ struct GpuHandlerFactory<'a> {
     pub pipeline_layout: PipelineLayout,
 }
 
-struct GpuHandler<'a> {
+pub struct GpuHandler<'a> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
     shader: &'a wgpu::ShaderModule,
@@ -207,36 +215,45 @@ impl<'a> GpuHandler<'a> {
 		let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
             label: Some("feed forward encoder"),
         });
-        let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-            label: Some("feed forward compute pass"),
-            timestamp_writes: None,
-        });
-        compute_pass.set_pipeline(&self.pipeline);
-        compute_pass.set_bind_group(0, &self.bind_group, &[]);
-        compute_pass.dispatch_workgroups(1, 1, 1);
+        
+		{
+			let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+				label: Some("feed forward compute pass"),
+				timestamp_writes: None,
+			});
+			compute_pass.set_pipeline(&self.pipeline);
+			compute_pass.set_bind_group(0, &self.bind_group, &[]);
+			compute_pass.dispatch_workgroups(1, 1, 1);
+		}
+
+		encoder.copy_buffer_to_buffer(
+			&self.matrix_buffer.output_buffer,
+			0,
+			&self.matrix_buffer.staging_buffer,
+			0,
+			(64 * std::mem::size_of::<f64>()) as u64
+		);
+
         let cmd = encoder.finish();
         self.queue.submit(Some(cmd));
     }
 
-	pub async fn retrive_results(&self) -> Vec<f64> {
+	pub async fn read_staging_buffer(&self) -> Vec<f64> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let output_buffer_slice = self.matrix_buffer.output_buffer.slice(..);
-		let map_future = output_buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-			if result.is_ok() {
-				let _ = sender.send(Ok(()));
-			} else {
-				let _ = sender.send(Err("Failed to map buffer"));
-			}
+		let buffer_slice = self.matrix_buffer.output_buffer.slice(..);
+
+		buffer_slice.map_async(wgpu::MapMode::Read, move |result| {sender.send(result).unwrap();
 		});
-
 		self.device.poll(wgpu::Maintain::Wait);
-
 		receiver.await.expect("Failed to retrieve results").expect("Failed to map buffer");
 
-		let data = output_buffer_slice.get_mapped_range();
-		let results: &[f64] = bytemuck::cast_slice(&data);
+		let data = buffer_slice.get_mapped_range();
+		let results: Vec<f64> = bytemuck::cast_slice(&data).to_vec();
 
-		results.to_vec()
+		drop(data);
+		self.matrix_buffer.staging_buffer.unmap();
+
+		results
 	}
 }
 
@@ -249,6 +266,7 @@ impl<'a> GpuHandlerFactory<'a> {
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("feed forward bind group layout"),
             entries: &[
+				//inputs
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
@@ -259,6 +277,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
+				//weights
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
@@ -269,6 +288,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
+				//biases
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
@@ -279,6 +299,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
+				//outputs
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
@@ -314,17 +335,10 @@ impl<'a> GpuHandlerFactory<'a> {
 @group(0) @binding(0) var<storage, read> inputs: array<f32>;        // Input array (length 64)
 @group(0) @binding(1) var<storage, read> weights: array<array<f32, 64>>; // Weights matrix (64x64)
 @group(0) @binding(2) var<storage, read> biases: array<f32>;        // Bias array (length 64)
-@group(0) @binding(3) var<storage, write> outputs: array<f32>;      // Output array (length 64)
+@group(0) @binding(3) var<storage, read_write> outputs: array<f32>;      // Output array (length 64)
 
 // Entry point for the compute shader
 @compute @workgroup_size(64) // Process 64 outputs in parallel
-
-// tanh function
-fn tanh(x: f32) -> f32 {
-    let e_pos = exp(x);
-    let e_neg = exp(-x);
-    return (e_pos - e_neg) / (e_pos + e_neg);
-}
 
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let i = global_id.x; // Index for output neuron
@@ -353,6 +367,7 @@ struct MatrixBuffer {
     weight_buffer: wgpu::Buffer,
     bias_buffer: wgpu::Buffer,
     output_buffer: wgpu::Buffer,
+	staging_buffer: wgpu::Buffer,
 }
 
 impl MatrixBuffer {
@@ -379,12 +394,18 @@ impl MatrixBuffer {
                 contents: bytemuck::cast_slice(biases),
                 usage: wgpu::BufferUsages::STORAGE,
             }),
-            output_buffer: device.create_buffer(&BufferDescriptor {
+			output_buffer: device.create_buffer(&BufferDescriptor {
                 label: Some("output buffer"),
                 size: (64 * std::mem::size_of::<f64>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             }),
+			staging_buffer: device.create_buffer(&BufferDescriptor {
+				label: Some("staging buffer"),
+				size: (64 * std::mem::size_of::<f64>()) as u64,
+				usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+				mapped_at_creation: false,
+			}),            
         }
     }
 }
