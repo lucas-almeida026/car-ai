@@ -42,13 +42,21 @@ impl NeuralNetwork {
         outputs
     }
 
-	pub async fn gpu_feed_forward<'a>(&mut self, inputs: &Vec<f64>,gpu_handler_factory: &mut GpuHandlerFactory<'a>) {
-		self.levels[0].gpu_feed_forward(inputs, gpu_handler_factory).await;
-		for i in 1..self.levels.len() {
-			let inputs = self.levels[i - 1].outputs.clone();
-			self.levels[i].gpu_feed_forward(&inputs, gpu_handler_factory).await;
-		}
-	}
+    pub async fn gpu_feed_forward<'a>(
+        &mut self,
+        inputs: &Vec<f64>,
+        gpu_handler_factory: &mut GpuHandlerFactory<'a>,
+    ) -> Vec<f64> {
+        let mut outputs = self.levels[0]
+            .gpu_feed_forward(inputs, gpu_handler_factory)
+            .await;
+        for i in 1..self.levels.len() {
+            outputs = self.levels[i]
+                .gpu_feed_forward(&outputs, gpu_handler_factory)
+                .await;
+        }
+        outputs
+    }
 
     pub fn prune(&mut self, base: &NeuralNetwork, t: f64) {
         for (x, level) in self.levels.iter_mut().enumerate() {
@@ -133,7 +141,7 @@ impl Level {
         &mut self,
         inputs: &Vec<f64>,
         gpu_handler_factory: &mut GpuHandlerFactory<'a>,
-    ) {
+    ) -> Vec<f64> {
         let flat_weights: Vec<f64> = self.weights.clone().into_iter().flatten().collect();
         let matrix_buffer = MatrixBuffer::new(
             gpu_handler_factory.device,
@@ -144,8 +152,9 @@ impl Level {
         );
         let mut gpu_handler = gpu_handler_factory.create_handler(matrix_buffer);
         gpu_handler.dispatch();
-		let outputs = gpu_handler.read_staging_buffer().await;
-		self.outputs = outputs;
+        let outputs = gpu_handler.read_staging_buffer().await;
+        self.outputs = outputs.clone();
+        outputs
     }
 }
 
@@ -212,49 +221,55 @@ impl<'a> GpuHandler<'a> {
     }
 
     pub fn dispatch(&mut self) {
-		let mut encoder = self.device.create_command_encoder(&CommandEncoderDescriptor {
-            label: Some("feed forward encoder"),
-        });
-        
-		{
-			let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
-				label: Some("feed forward compute pass"),
-				timestamp_writes: None,
-			});
-			compute_pass.set_pipeline(&self.pipeline);
-			compute_pass.set_bind_group(0, &self.bind_group, &[]);
-			compute_pass.dispatch_workgroups(1, 1, 1);
-		}
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor {
+                label: Some("feed forward encoder"),
+            });
 
-		encoder.copy_buffer_to_buffer(
-			&self.matrix_buffer.output_buffer,
-			0,
-			&self.matrix_buffer.staging_buffer,
-			0,
-			(64 * std::mem::size_of::<f64>()) as u64
-		);
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("feed forward compute pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.pipeline);
+            compute_pass.set_bind_group(0, &self.bind_group, &[]);
+            compute_pass.dispatch_workgroups(1, 1, 1);
+        }
+
+        encoder.copy_buffer_to_buffer(
+            &self.matrix_buffer.output_buffer,
+            0,
+            &self.matrix_buffer.staging_buffer,
+            0,
+            (64 * std::mem::size_of::<f64>()) as u64,
+        );
 
         let cmd = encoder.finish();
         self.queue.submit(Some(cmd));
     }
 
-	pub async fn read_staging_buffer(&self) -> Vec<f64> {
-		let (sender, receiver) = tokio::sync::oneshot::channel();
-		let buffer_slice = self.matrix_buffer.output_buffer.slice(..);
+    pub async fn read_staging_buffer(&self) -> Vec<f64> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let buffer_slice = self.matrix_buffer.staging_buffer.slice(..);
 
-		buffer_slice.map_async(wgpu::MapMode::Read, move |result| {sender.send(result).unwrap();
-		});
-		self.device.poll(wgpu::Maintain::Wait);
-		receiver.await.expect("Failed to retrieve results").expect("Failed to map buffer");
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            sender.send(result).unwrap();
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        receiver
+            .await
+            .expect("Failed to retrieve results")
+            .expect("Failed to map buffer");
 
-		let data = buffer_slice.get_mapped_range();
-		let results: Vec<f64> = bytemuck::cast_slice(&data).to_vec();
+        let data = buffer_slice.get_mapped_range();
+        let results: Vec<f64> = bytemuck::cast_slice(&data).to_vec();
 
-		drop(data);
-		self.matrix_buffer.staging_buffer.unmap();
+        drop(data);
+        self.matrix_buffer.staging_buffer.unmap();
 
-		results
-	}
+        results
+    }
 }
 
 impl<'a> GpuHandlerFactory<'a> {
@@ -266,7 +281,7 @@ impl<'a> GpuHandlerFactory<'a> {
         let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: Some("feed forward bind group layout"),
             entries: &[
-				//inputs
+                //inputs
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
@@ -277,7 +292,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
-				//weights
+                //weights
                 BindGroupLayoutEntry {
                     binding: 1,
                     visibility: ShaderStages::COMPUTE,
@@ -288,7 +303,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
-				//biases
+                //biases
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
@@ -299,7 +314,7 @@ impl<'a> GpuHandlerFactory<'a> {
                     },
                     count: None,
                 },
-				//outputs
+                //outputs
                 BindGroupLayoutEntry {
                     binding: 3,
                     visibility: ShaderStages::COMPUTE,
@@ -367,7 +382,7 @@ struct MatrixBuffer {
     weight_buffer: wgpu::Buffer,
     bias_buffer: wgpu::Buffer,
     output_buffer: wgpu::Buffer,
-	staging_buffer: wgpu::Buffer,
+    staging_buffer: wgpu::Buffer,
 }
 
 impl MatrixBuffer {
@@ -394,18 +409,17 @@ impl MatrixBuffer {
                 contents: bytemuck::cast_slice(biases),
                 usage: wgpu::BufferUsages::STORAGE,
             }),
-			output_buffer: device.create_buffer(&BufferDescriptor {
+            output_buffer: device.create_buffer_init(&BufferInitDescriptor {
                 label: Some("output buffer"),
-                size: (64 * std::mem::size_of::<f64>()) as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                contents: bytemuck::cast_slice(outputs),
+                usage: wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::STORAGE,
+            }),
+            staging_buffer: device.create_buffer(&BufferDescriptor {
+                label: Some("staging buffer"),
+                size: outputs.len() as u64 * std::mem::size_of::<f64>() as u64,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             }),
-			staging_buffer: device.create_buffer(&BufferDescriptor {
-				label: Some("staging buffer"),
-				size: (64 * std::mem::size_of::<f64>()) as u64,
-				usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-				mapped_at_creation: false,
-			}),            
         }
     }
 }

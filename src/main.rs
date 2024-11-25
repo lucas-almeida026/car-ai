@@ -353,7 +353,7 @@ mod test {
                 vec8_64![0.0, -0.2, 0.0, -0.3, 0.3, 0.3, 0.4, 0.6]
             ]
         }
-		let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+        let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
         let output = net.feed_forward(input);
         let expected = vec8_64![
             0.9912473892210135,
@@ -381,11 +381,11 @@ mod test {
             .expect("Failed to create device");
 
         let mut gpu_handler_factory = GpuHandlerFactory::new(&device, &queue);
-		
-		let neuron_count = &[64, 64, 64];
+
+        let neuron_count = &[64, 64, 64];
         let mut net = NeuralNetwork::new(neuron_count);
 
-		for level in net.levels.iter_mut() {
+        for level in net.levels.iter_mut() {
             level.biases = vec8_64![0.3, -0.1, 0.1, 0.4, 0.5, -0.3, 0.0, 0.1];
             level.weights = vec8_64![
                 vec8_64![0.3, -0.1, 0.7, 0.4, -0.5, -0.3, 0.0, 0.2],
@@ -399,10 +399,11 @@ mod test {
             ]
         }
 
-		let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
-		net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
+        let input = &vec8_64![0.11, -0.7, 0.5, 0.4, -0.4, -0.2, 0.1, -0.3];
+        let output = net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
+        println!("gpu outputs: {:#?}", output);
 
-		println!("gpu outputs: {:#?}", net.levels[2].outputs);
+        // println!("gpu outputs: {:#?}", net.levels[1].outputs);
         assert!(true);
     }
 }
