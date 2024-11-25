@@ -1,15 +1,10 @@
-use std::{fs, sync::mpsc::Receiver};
-
-use crate::{
-    fns::{self, lerpf32},
-    gpu,
-};
+use crate::fns::lerpf32;
 use serde::{de::Error, Deserialize, Serialize};
 use serde_json::Result;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, BufferBindingType, BufferDescriptor, CommandEncoder,
+    BindGroupLayoutEntry, BindingType, BufferBindingType, BufferDescriptor,
     CommandEncoderDescriptor, ComputePassDescriptor, ComputePipeline, ComputePipelineDescriptor,
     PipelineCompilationOptions, PipelineLayout, PipelineLayoutDescriptor, ShaderModuleDescriptor,
     ShaderSource, ShaderStages,
@@ -268,7 +263,7 @@ impl<'a> GpuHandler<'a> {
         drop(data);
         self.matrix_buffer.staging_buffer.unmap();
 
-        results.iter().map(|x| *x as f32 ).collect()
+        results.iter().map(|x| *x as f32).collect()
     }
 }
 
