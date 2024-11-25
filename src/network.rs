@@ -1,7 +1,7 @@
 use std::{fs, sync::mpsc::Receiver};
 
 use crate::{
-    fns::{self, lerpf64},
+    fns::{self, lerpf32},
     gpu,
 };
 use serde::{de::Error, Deserialize, Serialize};
@@ -34,7 +34,7 @@ impl NeuralNetwork {
         }
     }
 
-    pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
+    pub fn feed_forward(&mut self, inputs: &Vec<f32>) -> Vec<f32> {
         let mut outputs = self.levels[0].feed_forward(inputs);
         for i in 1..self.levels.len() {
             outputs = self.levels[i].feed_forward(&outputs);
@@ -44,9 +44,9 @@ impl NeuralNetwork {
 
     pub async fn gpu_feed_forward<'a>(
         &mut self,
-        inputs: &Vec<f64>,
+        inputs: &Vec<f32>,
         gpu_handler_factory: &mut GpuHandlerFactory<'a>,
-    ) -> Vec<f64> {
+    ) -> Vec<f32> {
         let mut outputs = self.levels[0]
             .gpu_feed_forward(inputs, gpu_handler_factory)
             .await;
@@ -58,16 +58,16 @@ impl NeuralNetwork {
         outputs
     }
 
-    pub fn prune(&mut self, base: &NeuralNetwork, t: f64) {
+    pub fn prune(&mut self, base: &NeuralNetwork, t: f32) {
         for (x, level) in self.levels.iter_mut().enumerate() {
             for i in 0..level.biases.len() {
-                level.biases[i] = lerpf64(level.biases[i], base.levels[x].biases[i], t);
+                level.biases[i] = lerpf32(level.biases[i], base.levels[x].biases[i], t);
             }
 
             for i in 0..level.weights.len() {
                 for j in 0..level.weights[i].len() {
                     level.weights[i][j] =
-                        lerpf64(level.weights[i][j], base.levels[x].weights[i][j], t);
+                        lerpf32(level.weights[i][j], base.levels[x].weights[i][j], t);
                 }
             }
         }
@@ -90,10 +90,10 @@ impl NeuralNetwork {
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Level {
-    pub inputs: Vec<f64>,
-    pub outputs: Vec<f64>,
-    pub biases: Vec<f64>,
-    pub weights: Vec<Vec<f64>>,
+    pub inputs: Vec<f32>,
+    pub outputs: Vec<f32>,
+    pub biases: Vec<f32>,
+    pub weights: Vec<Vec<f32>>,
 }
 
 impl Level {
@@ -109,16 +109,16 @@ impl Level {
     pub fn randomize(&mut self) {
         for i in 0..self.inputs.len() {
             for j in 0..self.outputs.len() {
-                self.weights[j][i] = rand::random::<f64>() * 2.0 - 1.0;
+                self.weights[j][i] = rand::random::<f32>() * 2.0 - 1.0;
             }
         }
 
         for i in 0..self.biases.len() {
-            self.biases[i] = rand::random::<f64>() * 2.0 - 1.0;
+            self.biases[i] = rand::random::<f32>() * 2.0 - 1.0;
         }
     }
 
-    pub fn feed_forward(&mut self, inputs: &Vec<f64>) -> Vec<f64> {
+    pub fn feed_forward(&mut self, inputs: &Vec<f32>) -> Vec<f32> {
         assert_eq!(self.inputs.len(), inputs.len());
         for i in 0..self.inputs.len() {
             self.inputs[i] = inputs[i];
@@ -139,10 +139,10 @@ impl Level {
 
     pub async fn gpu_feed_forward<'a>(
         &mut self,
-        inputs: &Vec<f64>,
+        inputs: &Vec<f32>,
         gpu_handler_factory: &mut GpuHandlerFactory<'a>,
-    ) -> Vec<f64> {
-        let flat_weights: Vec<f64> = self.weights.clone().into_iter().flatten().collect();
+    ) -> Vec<f32> {
+        let flat_weights: Vec<f32> = self.weights.clone().into_iter().flatten().collect();
         let matrix_buffer = MatrixBuffer::new(
             gpu_handler_factory.device,
             &inputs,
@@ -234,7 +234,7 @@ impl<'a> GpuHandler<'a> {
             });
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, &self.bind_group, &[]);
-            compute_pass.dispatch_workgroups(1, 1, 1);
+            compute_pass.dispatch_workgroups(64, 1, 1);
         }
 
         encoder.copy_buffer_to_buffer(
@@ -242,14 +242,14 @@ impl<'a> GpuHandler<'a> {
             0,
             &self.matrix_buffer.staging_buffer,
             0,
-            (64 * std::mem::size_of::<f64>()) as u64,
+            (64 * std::mem::size_of::<f32>()) as u64,
         );
 
         let cmd = encoder.finish();
         self.queue.submit(Some(cmd));
     }
 
-    pub async fn read_staging_buffer(&self) -> Vec<f64> {
+    pub async fn read_staging_buffer(&self) -> Vec<f32> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
         let buffer_slice = self.matrix_buffer.staging_buffer.slice(..);
 
@@ -263,12 +263,12 @@ impl<'a> GpuHandler<'a> {
             .expect("Failed to map buffer");
 
         let data = buffer_slice.get_mapped_range();
-        let results: Vec<f64> = bytemuck::cast_slice(&data).to_vec();
+        let results: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
 
         drop(data);
         self.matrix_buffer.staging_buffer.unmap();
 
-        results
+        results.iter().map(|x| *x as f32 ).collect()
     }
 }
 
@@ -348,7 +348,7 @@ impl<'a> GpuHandlerFactory<'a> {
     fn shader_mmul_64x64() -> String {
         let mut shader = r"
 @group(0) @binding(0) var<storage, read> inputs: array<f32>;        // Input array (length 64)
-@group(0) @binding(1) var<storage, read> weights: array<array<f32, 64>>; // Weights matrix (64x64)
+@group(0) @binding(1) var<storage, read> weights: array<f32>; // Weights array (length 64x64)
 @group(0) @binding(2) var<storage, read> biases: array<f32>;        // Bias array (length 64)
 @group(0) @binding(3) var<storage, read_write> outputs: array<f32>;      // Output array (length 64)
 
@@ -363,7 +363,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
         // Perform dot product of inputs and weights for this output neuron
         for (var j: u32 = 0u; j < 64u; j = j + 1u) {
-            sum = sum + inputs[j] * weights[i][j];
+            sum = sum + inputs[j] * weights[i * 64u + j];
         }
 
         // Add bias
@@ -388,10 +388,10 @@ struct MatrixBuffer {
 impl MatrixBuffer {
     pub fn new(
         device: &wgpu::Device,
-        input: &Vec<f64>,
-        weights: &Vec<f64>,
-        biases: &Vec<f64>,
-        outputs: &Vec<f64>,
+        input: &Vec<f32>,
+        weights: &Vec<f32>,
+        biases: &Vec<f32>,
+        outputs: &Vec<f32>,
     ) -> Self {
         Self {
             input_buffer: device.create_buffer_init(&BufferInitDescriptor {
@@ -416,7 +416,7 @@ impl MatrixBuffer {
             }),
             staging_buffer: device.create_buffer(&BufferDescriptor {
                 label: Some("staging buffer"),
-                size: outputs.len() as u64 * std::mem::size_of::<f64>() as u64,
+                size: outputs.len() as u64 * std::mem::size_of::<f32>() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             }),

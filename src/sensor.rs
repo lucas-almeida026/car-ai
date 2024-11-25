@@ -73,7 +73,7 @@ impl Sensor {
         traffic: &Vec<Car>,
         offset: f32,
         is_best: bool,
-    ) -> Result<Vec<f64>, String> {
+    ) -> Result<Vec<f32>, String> {
         let mut result = Vec::with_capacity(self.rays.len());
         for ray in self.rays.iter() {
             let reading = ray.render(
@@ -107,7 +107,7 @@ impl Ray {
         offset: f32,
         is_best: bool,
         pos: &SensorPos,
-    ) -> Result<f64, String> {
+    ) -> Result<f32, String> {
         let (base_x, base_y) = Self::get_base_point(pos, x, y, w, h);
         let start = FPoint::new(base_x, base_y);
         let end = FPoint::new(
@@ -148,12 +148,12 @@ impl Ray {
         }
 
         let mut closest = end;
-        let mut reading: Option<f64> = None;
+        let mut reading: Option<f32> = None;
         if touches.len() > 0 {
             touches.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
             closest = touches[0].0;
 
-            reading = Some(1.0 - touches[0].1 as f64);
+            reading = Some(1.0 - touches[0].1);
         }
 
         if is_best {

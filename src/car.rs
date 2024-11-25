@@ -70,7 +70,7 @@ impl<'a> Car<'a> {
         brain.randomize();
 
         if ref_brain.is_some() {
-            brain.prune(ref_brain.unwrap(), t);
+            brain.prune(ref_brain.unwrap(), t as f32);
         }
 
         Ok(Car {
