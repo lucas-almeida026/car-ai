@@ -26,9 +26,9 @@ fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let use_controlled_car = true;
-    let amount_cars = 2;
-    let traffic_size = 2;
+    let use_controlled_car = false;
+    let amount_cars = 430;
+    let traffic_size = 5;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -187,11 +187,11 @@ fn main() -> Result<(), String> {
             println!("second best score: {}", ai_cars[min_y_idx].score);
 
             best_brain
-                .save_as_file("networks/best.json")
+                .save_as_file("brain/best.json")
                 .expect("failed to save network");
 
             sec_best_brain
-                .save_as_file("networks/second_best.json")
+                .save_as_file("brain/second_best.json")
                 .expect("failed to save network");
 
             ai_cars = generate_ai_cars(
@@ -249,7 +249,7 @@ fn generate_ai_cars<'a>(
     let mut car;
 
     // let mut ref_brain: Option<NeuralNetwork> = None;
-    // let net = NeuralNetwork::load_from_file("networks/best.json");
+    // let net = NeuralNetwork::load_from_file("brain/best.json");
     // if let Ok(net) = net {
     //     ref_brain = Some(net);
     // }

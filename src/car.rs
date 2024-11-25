@@ -29,16 +29,16 @@ pub struct Car<'a> {
     src_rect: Option<Rect>,
     pub score: i64,
     last_y: f32,
-	changing_lane: bool,
-	target_lane: u32,
-	current_lane: u32,
+    changing_lane: bool,
+    target_lane: u32,
+    current_lane: u32,
     same_y_count: u32,
-	hitbox: Vec<Point>,
+    hitbox: Vec<Point>,
 }
 
 impl<'a> Car<'a> {
     pub fn new(
-		current_lane: u32,
+        current_lane: u32,
         focused: &'a SizedTexture<'a>,
         unfocused: &'a SizedTexture<'a>,
         damaged: &'a SizedTexture<'a>,
@@ -90,10 +90,10 @@ impl<'a> Car<'a> {
             score: 0,
             last_y: 600.0,
             same_y_count: 0,
-			target_lane: current_lane,
-			current_lane,
-			changing_lane: false,
-			hitbox: vec![],
+            target_lane: current_lane,
+            current_lane,
+            changing_lane: false,
+            hitbox: vec![],
         })
     }
 
@@ -132,7 +132,7 @@ impl<'a> Car<'a> {
         Ok(())
     }
 
-	//TODO: inline this logic in the render method
+    //TODO: inline this logic in the render method
     pub fn is_passed_bottom_bound(&self, h: i32, offset: f32) -> bool {
         let (_, scaled_h) = self.src_dimentions_scaled();
         let y = self.position.y - offset;
@@ -179,7 +179,11 @@ impl<'a> Car<'a> {
             false,
         )?;
 
-		println!("x: {}, bl-x: {}, br-x: {}", self.position.x, borders[0].start.x, borders[1].start.x);
+        assert_eq!(borders.len(), 2, "borders.len() == 2");
+        let road_width = borders[1].start.x - borders[0].start.x;
+        let x_in_road = self.position.x - borders[0].start.x as f32;
+        let close_l = x_in_road < self.dimentions.w as f32 / 2.0 / 1.66;
+        let close_r = x_in_road > road_width as f32 - self.dimentions.w as f32 / 1.66;
 
         // render hitbox
         self.hitbox = self.rotate_hitbox_points(offset);
@@ -189,21 +193,23 @@ impl<'a> Car<'a> {
             let b = self.hitbox[(i + 1) % self.hitbox.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
             if !self.damaged {
-                for border in borders.iter() {
-                    let touch = get_intersectionf(
-                        a.x as f32,
-                        a.y as f32,
-                        b.x as f32,
-                        b.y as f32,
-                        border.start.x as f32,
-                        border.start.y as f32,
-                        border.end.x as f32,
-                        border.end.y as f32,
-                    );
-                    if let Some((p, t)) = touch {
-                        touches.push((Point::new(p.x as i32, p.y as i32), t));
-                    }
-                }
+                if close_l || close_r {
+					for border in borders.iter() {
+						let touch = get_intersectionf(
+							a.x as f32,
+							a.y as f32,
+							b.x as f32,
+							b.y as f32,
+							border.start.x as f32,
+							border.start.y as f32,
+							border.end.x as f32,
+							border.end.y as f32,
+						);
+						if let Some((p, t)) = touch {
+							touches.push((Point::new(p.x as i32, p.y as i32), t));
+						}
+					}
+				}
                 for car in traffic.iter() {
                     let points = car.rotate_hitbox_points(offset);
 
@@ -227,8 +233,8 @@ impl<'a> Car<'a> {
                     *cars_alive -= 1;
                 }
                 self.damaged = true;
-				self.changing_lane = false;
-				self.position.angle = 0.0;
+                self.changing_lane = false;
+                self.position.angle = 0.0;
                 canvas.set_draw_color(Color::RGB(255, 12, 255));
             } else {
                 canvas.set_draw_color(Color::RGB(12, 0, 255));
@@ -265,7 +271,7 @@ impl<'a> Car<'a> {
             self.controls.backward = outputs[1] > 0.33;
             self.controls.left = outputs[2] > 0.33;
             self.controls.right = outputs[3] > 0.33;
-			// println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
+            // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
         }
 
         if offset == self.last_y {
@@ -340,7 +346,9 @@ impl<'a> Car<'a> {
         points
     }
 
-	pub fn hitbox (&self) -> &Vec<Point> { &self.hitbox }
+    pub fn hitbox(&self) -> &Vec<Point> {
+        &self.hitbox
+    }
 
     pub fn rotate_hitbox_points(&self, offset: f32) -> Vec<Point> {
         let (w, h) = self.src_dimentions_scaled();
@@ -386,42 +394,42 @@ impl<'a> Car<'a> {
             }
         }
 
-		self.normalize_angle();
+        self.normalize_angle();
         self.normalize_velocity();
         self.apply_friction();
 
-		if self.dummy {
-			let rand_num = rand::thread_rng().gen_range(1..1024);
-			if rand_num == 1 {
-				self.motion.velocity /= 1.5;
-			} else if rand_num > 1024 - 32 {
-				self.motion.velocity = self.motion.max_velocity - 0.01;
-			}
+        if self.dummy {
+            let rand_num = rand::thread_rng().gen_range(1..1024);
+            if rand_num == 1 {
+                self.motion.velocity /= 1.5;
+            } else if rand_num > 1024 - 32 {
+                self.motion.velocity = self.motion.max_velocity - 0.01;
+            }
 
-			if !self.changing_lane {
-				let should_change_lane = rand::thread_rng().gen_range(1..512) == 1;
-				if should_change_lane {
-					self.changing_lane = true;
-					self.target_lane = road.random_lane_idx();
-					if self.current_lane > self.target_lane {
-						self.turn_left_by(9.0);
-					} else if self.current_lane < self.target_lane {
-						self.turn_right_by(9.0);
-					} else {
-						self.changing_lane = false;
-					}
-				}
-			} else {
-				let target_x = road.lane_center(self.target_lane).unwrap();
-				let xmin = target_x - 2.0;
-				let xmax = target_x + 2.0;
-				let x = self.position.x + (self.dimentions.w as f32 / 2.0);
-				if x > xmin && self.position.x < xmax {
-					self.position.angle = 0.0;
-					self.changing_lane = false;
-				}
-			}
-		}
+            if !self.changing_lane {
+                let should_change_lane = rand::thread_rng().gen_range(1..512) == 1;
+                if should_change_lane {
+                    self.changing_lane = true;
+                    self.target_lane = road.random_lane_idx();
+                    if self.current_lane > self.target_lane {
+                        self.turn_left_by(9.0);
+                    } else if self.current_lane < self.target_lane {
+                        self.turn_right_by(9.0);
+                    } else {
+                        self.changing_lane = false;
+                    }
+                }
+            } else {
+                let target_x = road.lane_center(self.target_lane).unwrap();
+                let xmin = target_x - 2.0;
+                let xmax = target_x + 2.0;
+                let x = self.position.x + (self.dimentions.w as f32 / 2.0);
+                if x > xmin && self.position.x < xmax {
+                    self.position.angle = 0.0;
+                    self.changing_lane = false;
+                }
+            }
+        }
 
         self.position.x += self.position.angle.to_radians().sin() as f32 * self.motion.velocity;
         self.position.y -= self.position.angle.to_radians().cos() as f32 * self.motion.velocity;
@@ -431,11 +439,11 @@ impl<'a> Car<'a> {
         self.controls.forward = true;
         self.motion.acceleration = 0.0;
         self.motion.velocity = max_velocity - 0.01;
-		self.motion.max_velocity = max_velocity;
+        self.motion.max_velocity = max_velocity;
         self.motion.friction = 0.0;
         self.sensors = vec![];
         self.dummy = true;
-		self.damaged = false;
+        self.damaged = false;
         self.brain = None;
     }
 
