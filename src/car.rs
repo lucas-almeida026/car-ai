@@ -11,7 +11,7 @@ use sdl2::video::{Window, WindowContext};
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
 use crate::road::{Border, Road};
-use crate::sensor::{Facing, Sensor, SensorPos};
+use crate::sensor::Sensor;
 use crate::texture::{self, SizedTexture, TexturePool};
 
 pub struct Car<'a> {
@@ -34,6 +34,7 @@ pub struct Car<'a> {
     current_lane: u32,
     same_y_count: u32,
     hitbox: Vec<Point>,
+    sensor_readings: Vec<f32>,
 }
 
 impl<'a> Car<'a> {
@@ -51,20 +52,27 @@ impl<'a> Car<'a> {
         let controls = Controls::new();
 
         let sensors = vec![
-            Sensor::new(18, 210.0, PI * 1.5, SensorPos::Center, Facing::Forward),
-            Sensor::new(11, 380.0, PI * 0.3, SensorPos::Center, Facing::Forward),
-            Sensor::new(3, 520.0, PI * 0.15, SensorPos::Center, Facing::Forward),
-            // Sensor::new(2, 550.0, PI / 5.0, SensorPos::Center, Facing::Forward),
-            // Sensor::new(3, 320.0, PI / 7.0, SensorPos::TopRight, Facing::Forward),
-            // Sensor::new(3, 120.0, PI / 2.0, SensorPos::CenterLeft, Facing::LeftSide),
-            // Sensor::new(
-            //     3,
-            //     120.0,
-            //     PI / 2.0,
-            //     SensorPos::CenterRight,
-            //     Facing::RightSide,
-            // ),
-            // Sensor::new(1, 150.0, PI / 16.0, SensorPos::Center, Facing::Backward),
+            Sensor::new(
+                18,
+                210.0,
+                PI * 1.5,
+                dimentions.w as u16,
+                dimentions.h as u16,
+            ),
+            Sensor::new(
+                11,
+                380.0,
+                PI * 0.3,
+                dimentions.w as u16,
+                dimentions.h as u16,
+            ),
+            Sensor::new(
+                3,
+                520.0,
+                PI * 0.15,
+                dimentions.w as u16,
+                dimentions.h as u16,
+            ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
         let mut brain = NeuralNetwork::new(&[total_sensors, 64, 128, 128, 64, 32, 4]);
@@ -94,10 +102,14 @@ impl<'a> Car<'a> {
             current_lane,
             changing_lane: false,
             hitbox: vec![],
+            sensor_readings: vec![],
         })
     }
 
-    pub fn src_crop_center(&mut self, width: u32, height: u32) {
+    pub fn src_crop_center(&mut self, width: u32, height: u32, scale: f64) {
+        if scale > 0.0 && scale < 1.0 {
+            self.dimentions.scale = scale;
+        }
         let x = (self.dimentions.w - width) / 2;
         let y = (self.dimentions.h - height) / 2;
         self.src_rect = Some(Rect::new(
@@ -108,14 +120,12 @@ impl<'a> Car<'a> {
         ));
         self.dimentions.w = width;
         self.dimentions.h = height;
-    }
 
-    pub fn set_scale(&mut self, scale: f64) -> Result<(), String> {
-        if scale > 0.0 && scale < 1.0 {
-            self.dimentions.scale = scale;
-            Ok(())
-        } else {
-            Err("Scale must be between 0 and 1".to_string())
+        for sensor in self.sensors.iter_mut() {
+            for ray in sensor.rays.iter_mut() {
+                ray.w = (width as f64 * self.dimentions.scale) as u16;
+                ray.h = (height as f64 * self.dimentions.scale) as u16;
+            }
         }
     }
 
@@ -194,22 +204,22 @@ impl<'a> Car<'a> {
             let mut touches: Vec<(Point, f32)> = Vec::new();
             if !self.damaged {
                 if close_l || close_r {
-					for border in borders.iter() {
-						let touch = get_intersectionf(
-							a.x as f32,
-							a.y as f32,
-							b.x as f32,
-							b.y as f32,
-							border.start.x as f32,
-							border.start.y as f32,
-							border.end.x as f32,
-							border.end.y as f32,
-						);
-						if let Some((p, t)) = touch {
-							touches.push((Point::new(p.x as i32, p.y as i32), t));
-						}
-					}
-				}
+                    for border in borders.iter() {
+                        let touch = get_intersectionf(
+                            a.x as f32,
+                            a.y as f32,
+                            b.x as f32,
+                            b.y as f32,
+                            border.start.x as f32,
+                            border.start.y as f32,
+                            border.end.x as f32,
+                            border.end.y as f32,
+                        );
+                        if let Some((p, t)) = touch {
+                            touches.push((Point::new(p.x as i32, p.y as i32), t));
+                        }
+                    }
+                }
                 for car in traffic.iter() {
                     let points = car.rotate_hitbox_points(offset);
 
@@ -246,33 +256,21 @@ impl<'a> Car<'a> {
         let mut readings = vec![];
         if !self.damaged {
             for sensor in self.sensors.iter_mut() {
-                let mut buffer = sensor
-                    .render(
-                        canvas,
-                        self.position.x,
-                        self.position.y - offset,
-                        scaled_w,
-                        scaled_h,
-                        self.position.angle,
-                        &borders,
-                        &traffic,
-                        offset,
-                        is_best,
-                    )
-                    .map_err(|e| e.to_string())?;
-                readings.append(&mut buffer);
+                let r = sensor.update(
+                    self.position.x,
+                    self.position.y,
+                    self.position.angle,
+                    offset,
+                    &borders,
+                    &traffic,
+                );
+                readings.append(&mut r.clone());
+                sensor.render(canvas, is_best).map_err(|e| e.to_string())?;
             }
         }
+        self.sensor_readings = readings;
 
-        if self.brain.is_some() && !self.damaged {
-            let outputs = self.brain.as_mut().unwrap().feed_forward(&readings);
-            assert_eq!(outputs.len(), 4);
-            self.controls.forward = outputs[0] > 0.33;
-            self.controls.backward = outputs[1] > 0.33;
-            self.controls.left = outputs[2] > 0.33;
-            self.controls.right = outputs[3] > 0.33;
-            // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
-        }
+        // self.auto_update_controls();
 
         if offset == self.last_y {
             self.same_y_count += 1;
@@ -299,6 +297,22 @@ impl<'a> Car<'a> {
 
     pub fn scaled_height(&self) -> f64 {
         self.dimentions.h as f64 * self.dimentions.scale
+    }
+
+    pub fn auto_update_controls(&mut self) {
+        if self.brain.is_some() && !self.damaged {
+            let outputs = self
+                .brain
+                .as_mut()
+                .unwrap()
+                .feed_forward(&self.sensor_readings);
+            assert_eq!(outputs.len(), 4);
+            self.controls.forward = outputs[0] > 0.33;
+            self.controls.backward = outputs[1] > 0.33;
+            self.controls.left = outputs[2] > 0.33;
+            self.controls.right = outputs[3] > 0.33;
+            // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
+        }
     }
 
     pub fn src_dimentions_scaled(&self) -> (f32, f32) {
