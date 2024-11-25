@@ -132,6 +132,7 @@ impl<'a> Car<'a> {
         Ok(())
     }
 
+	//TODO: inline this logic in the render method
     pub fn is_passed_bottom_bound(&self, h: i32, offset: f32) -> bool {
         let (_, scaled_h) = self.src_dimentions_scaled();
         let y = self.position.y - offset;
@@ -178,6 +179,8 @@ impl<'a> Car<'a> {
             false,
         )?;
 
+		println!("x: {}, bl-x: {}, br-x: {}", self.position.x, borders[0].start.x, borders[1].start.x);
+
         // render hitbox
         self.hitbox = self.rotate_hitbox_points(offset);
 
@@ -185,7 +188,6 @@ impl<'a> Car<'a> {
             let a = self.hitbox[i];
             let b = self.hitbox[(i + 1) % self.hitbox.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
-            canvas.draw_line(a, b)?;
             if !self.damaged {
                 for border in borders.iter() {
                     let touch = get_intersectionf(
@@ -268,11 +270,11 @@ impl<'a> Car<'a> {
 
         if offset == self.last_y {
             self.same_y_count += 1;
-            self.score -= 100;
-            if self.same_y_count > 60 && !self.damaged {
-                *cars_alive -= 1;
-                self.damaged = true;
-            }
+            self.score -= 2;
+            // if self.same_y_count > 60 && !self.damaged {
+            //     *cars_alive -= 1;
+            //     self.damaged = true;
+            // }
         } else if self.position.y < self.last_y {
             self.score += 2;
         } else if self.damaged {
@@ -375,18 +377,18 @@ impl<'a> Car<'a> {
             }
         }
 
-        self.normalize_angle();
-        self.normalize_velocity();
-        self.apply_friction();
-
-        if self.motion.velocity != 0.0 && self.motion.velocity > 0.0 {
+        if self.motion.velocity > 0.1 || self.motion.velocity < -0.1 {
             if self.controls.left {
                 self.turn_left_by(1.2);
             }
-            if self.controls.right && self.motion.velocity > 0.0 {
+            if self.controls.right {
                 self.turn_right_by(1.2);
             }
         }
+
+		self.normalize_angle();
+        self.normalize_velocity();
+        self.apply_friction();
 
 		if self.dummy {
 			let rand_num = rand::thread_rng().gen_range(1..1024);

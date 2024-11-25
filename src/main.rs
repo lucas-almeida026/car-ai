@@ -26,9 +26,9 @@ fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let use_controlled_car = false;
-    let amount_cars = 430;
-    let traffic_size = 5;
+    let use_controlled_car = true;
+    let amount_cars = 2;
+    let traffic_size = 2;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
