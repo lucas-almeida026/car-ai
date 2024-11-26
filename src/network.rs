@@ -29,12 +29,18 @@ impl NeuralNetwork {
         }
     }
 
-    pub fn feed_forward(&mut self, inputs: &Vec<f32>) -> Vec<f32> {
-        let mut outputs = self.levels[0].feed_forward(inputs);
+    pub fn feed_forward(&mut self, inputs: &Vec<f32>) -> &Vec<f32> {
+		let mut outputs = self.levels[0].feed_forward(inputs);
         for i in 1..self.levels.len() {
-            outputs = self.levels[i].feed_forward(&outputs);
+			outputs = self.levels[i].feed_forward(&outputs);
+			// let (used, remaining) = self.levels.split_at_mut(i);
+			// if i == 1 {
+			// 	used.last_mut().unwrap().feed_forward(inputs);
+			// } else {
+			// 	remaining.first_mut().unwrap().feed_forward(&used.last().unwrap().outputs);
+			// }
         }
-        outputs
+		&self.levels.last().unwrap().outputs
     }
 
     pub async fn gpu_feed_forward<'a>(
@@ -129,7 +135,8 @@ impl Level {
 
             self.outputs[i] = sum.tanh();
         }
-        self.outputs.clone()
+
+		self.outputs.clone()
     }
 
     pub async fn gpu_feed_forward<'a>(

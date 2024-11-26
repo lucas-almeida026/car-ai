@@ -45,7 +45,7 @@ impl<'a> Car<'a> {
         damaged: &'a SizedTexture<'a>,
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
-    ) -> Result<Self, String> {
+    ) -> Self {
         let dimentions = Dimentions::new(focused.width, focused.height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
         let motion = Motion::new(0.0, 10.0, 0.4, 0.08);
@@ -75,14 +75,14 @@ impl<'a> Car<'a> {
             ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 128, 128, 64, 32, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 128, 128, 128, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
             brain.prune(ref_brain.unwrap(), t as f32);
         }
 
-        Ok(Car {
+        Car {
             dimentions,
             position,
             motion,
@@ -103,7 +103,7 @@ impl<'a> Car<'a> {
             changing_lane: false,
             hitbox: vec![],
             sensor_readings: vec![],
-        })
+        }
     }
 
     pub fn src_crop_center(&mut self, width: u32, height: u32, scale: f64) {
@@ -189,11 +189,11 @@ impl<'a> Car<'a> {
             false,
         )?;
 
-        assert_eq!(borders.len(), 2, "borders.len() == 2");
-        let road_width = borders[1].start.x - borders[0].start.x;
-        let x_in_road = self.position.x - borders[0].start.x as f32;
-        let close_l = x_in_road < self.dimentions.w as f32 / 2.0 / 1.66;
-        let close_r = x_in_road > road_width as f32 - self.dimentions.w as f32 / 1.66;
+        // assert_eq!(borders.len(), 2, "borders.len() == 2");
+        // let road_width = borders[1].start.x - borders[0].start.x;
+        // let x_in_road = self.position.x - borders[0].start.x as f32;
+        // let close_l = x_in_road < self.dimentions.w as f32 / 2.0 / 1.66;
+        // let close_r = x_in_road > road_width as f32 - self.dimentions.w as f32 / 1.66;
 
         // render hitbox
         self.hitbox = self.rotate_hitbox_points(offset);
@@ -203,23 +203,21 @@ impl<'a> Car<'a> {
             let b = self.hitbox[(i + 1) % self.hitbox.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
             if !self.damaged {
-                if close_l || close_r {
-                    for border in borders.iter() {
-                        let touch = get_intersectionf(
-                            a.x as f32,
-                            a.y as f32,
-                            b.x as f32,
-                            b.y as f32,
-                            border.start.x as f32,
-                            border.start.y as f32,
-                            border.end.x as f32,
-                            border.end.y as f32,
-                        );
-                        if let Some((p, t)) = touch {
-                            touches.push((Point::new(p.x as i32, p.y as i32), t));
-                        }
-                    }
-                }
+                for border in borders.iter() {
+					let touch = get_intersectionf(
+						a.x as f32,
+						a.y as f32,
+						b.x as f32,
+						b.y as f32,
+						border.start.x as f32,
+						border.start.y as f32,
+						border.end.x as f32,
+						border.end.y as f32,
+					);
+					if let Some((p, t)) = touch {
+						touches.push((Point::new(p.x as i32, p.y as i32), t));
+					}
+				}
                 for car in traffic.iter() {
                     let points = car.rotate_hitbox_points(offset);
 
@@ -268,19 +266,30 @@ impl<'a> Car<'a> {
                 sensor.render(canvas, is_best).map_err(|e| e.to_string())?;
             }
         }
-        self.sensor_readings = readings;
 
-        // self.auto_update_controls();
+        if self.brain.is_some() && !self.damaged {
+            let outputs = self
+                .brain
+                .as_mut()
+                .unwrap()
+                .feed_forward(&readings);
+            assert_eq!(outputs.len(), 4);
+            self.controls.forward = outputs[0] > 0.33;
+            self.controls.backward = outputs[1] > 0.33;
+            self.controls.left = outputs[2] > 0.33;
+            self.controls.right = outputs[3] > 0.33;
+            // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
+        }
 
         if offset == self.last_y {
             self.same_y_count += 1;
-            self.score -= 2;
-            // if self.same_y_count > 60 && !self.damaged {
-            //     *cars_alive -= 1;
-            //     self.damaged = true;
-            // }
+            // self.score -= 2;
+            if self.same_y_count > 60 * 2 && !self.damaged {
+                *cars_alive -= 1;
+                self.damaged = true;
+            }
         } else if self.position.y < self.last_y {
-            self.score += 2;
+            // self.score += 2;
         } else if self.damaged {
             self.score = -100_000_000;
         }
@@ -297,22 +306,6 @@ impl<'a> Car<'a> {
 
     pub fn scaled_height(&self) -> f64 {
         self.dimentions.h as f64 * self.dimentions.scale
-    }
-
-    pub fn auto_update_controls(&mut self) {
-        if self.brain.is_some() && !self.damaged {
-            let outputs = self
-                .brain
-                .as_mut()
-                .unwrap()
-                .feed_forward(&self.sensor_readings);
-            assert_eq!(outputs.len(), 4);
-            self.controls.forward = outputs[0] > 0.33;
-            self.controls.backward = outputs[1] > 0.33;
-            self.controls.left = outputs[2] > 0.33;
-            self.controls.right = outputs[3] > 0.33;
-            // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
-        }
     }
 
     pub fn src_dimentions_scaled(&self) -> (f32, f32) {
@@ -421,7 +414,7 @@ impl<'a> Car<'a> {
             }
 
             if !self.changing_lane {
-                let should_change_lane = rand::thread_rng().gen_range(1..512) == 1;
+                let should_change_lane = rand::thread_rng().gen_range(1..256) == 1;
                 if should_change_lane {
                     self.changing_lane = true;
                     self.target_lane = road.random_lane_idx();
@@ -438,7 +431,7 @@ impl<'a> Car<'a> {
                 let xmin = target_x - 2.0;
                 let xmax = target_x + 2.0;
                 let x = self.position.x + (self.dimentions.w as f32 / 2.0);
-                if x > xmin && self.position.x < xmax {
+                if self.position.x > xmin && self.position.x < xmax {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
                 }

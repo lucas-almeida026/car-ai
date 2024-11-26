@@ -26,9 +26,9 @@ fn main() -> Result<(), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let use_controlled_car = true;
-    let amount_cars = 0;
-    let traffic_size = 1;
+    let use_controlled_car = false;
+    let amount_cars = 400;
+    let traffic_size = 4;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -45,7 +45,7 @@ fn main() -> Result<(), String> {
         &damaged_texture,
         None,
         0.0,
-    )?;
+    );
 
     car.src_crop_center(194, 380, 0.3);
     car.set_in_lane(&road, 1)?;
@@ -54,16 +54,16 @@ fn main() -> Result<(), String> {
     let mut ai_cars = generate_ai_cars(
         amount_cars,
         &road,
-        None,
-        None,
+        NeuralNetwork::load_from_file("./brains/best.json").ok(),
+        NeuralNetwork::load_from_file("./brains/sec_best.json").ok(),
         &focused_texture,
         &unfocused_texture,
         &damaged_texture,
     );
-    // let mut min_y_idx: usize = 0;
-    // let mut max_score_idx: usize = 1;
-    // let mut best_brain = ai_cars[min_y_idx].brain.clone().unwrap();
-    // let mut sec_best_brain = ai_cars[max_score_idx].brain.clone().unwrap();
+    let mut min_y_idx: usize = 0;
+    let mut max_score_idx: usize = 1;
+    let mut best_brain = ai_cars[min_y_idx].brain.clone().unwrap();
+    let mut sec_best_brain = ai_cars[max_score_idx].brain.clone().unwrap();
     let mut cars_alive = ai_cars.len() as i32;
 
     let mut traffic = generate_traffic(
@@ -88,6 +88,17 @@ fn main() -> Result<(), String> {
                     ..
                 } => {
                     break 'running;
+                }
+                Event::KeyDown {
+                    keycode: Some(Keycode::X),
+                    ..
+                } => {
+                    if !use_controlled_car {
+                        let focused_car = &mut ai_cars[min_y_idx];
+                        focused_car.damaged = true;
+                        focused_car.score = -1000;
+                        cars_alive -= 1;
+                    }
                 }
                 _ => {}
             }
@@ -124,16 +135,21 @@ fn main() -> Result<(), String> {
             .position(|c| c.score == max_score)
             .unwrap_or(0);
 
-        // if ai_cars[n_min_y_idx].position.y < ai_cars[min_y_idx].position.y {
-        //     min_y_idx = n_min_y_idx;
-        //     best_brain = ai_cars[n_min_y_idx].brain.clone().unwrap();
-        // }
-        // if ai_cars[n_max_score_idx].position.y < ai_cars[max_score_idx].position.y
-        //     && ai_cars[n_max_score_idx].score > ai_cars[max_score_idx].score
-        // {
-        //     max_score_idx = n_max_score_idx;
-        //     sec_best_brain = ai_cars[n_max_score_idx].brain.clone().unwrap();
-        // }
+        if ai_cars[n_min_y_idx].position.y < ai_cars[min_y_idx].position.y {
+            min_y_idx = n_min_y_idx;
+            println!("changed min_y: {min_y_idx}");
+            println!("score: {}", ai_cars[min_y_idx].score);
+            best_brain = ai_cars[min_y_idx].brain.clone().unwrap();
+            // best_brain = ai_cars[n_min_y_idx].brain.clone().unwrap();
+        }
+        if ai_cars[n_max_score_idx].position.y < ai_cars[max_score_idx].position.y
+            && ai_cars[n_max_score_idx].score > ai_cars[max_score_idx].score
+        {
+            max_score_idx = n_max_score_idx;
+            println!("changed max_score: {max_score_idx}");
+            println!("score: {}", ai_cars[max_score_idx].score);
+            sec_best_brain = ai_cars[n_max_score_idx].brain.clone().unwrap();
+        }
 
         canvas.set_draw_color(Color::RGB(12, 12, 16));
         canvas.clear();
@@ -141,8 +157,8 @@ fn main() -> Result<(), String> {
         let camera_y_offset = if use_controlled_car {
             controlled_car.screen_offset(w_height as f32 * 0.7)
         } else {
-            // ai_cars[min_y_idx].position.y - (w_height as f32 * 0.7)
-			controlled_car.screen_offset(w_height as f32 * 0.7)
+            ai_cars[min_y_idx].position.y - (w_height as f32 * 0.7)
+            // controlled_car.screen_offset(w_height as f32 * 0.7)
         };
 
         road.render(&mut canvas, camera_y_offset)?;
@@ -162,11 +178,9 @@ fn main() -> Result<(), String> {
                 reset_passed_car(car, w_width as f32, w_height as f32, &road);
             }
         }
-
         // let best_car_y = ai_cars.get(best_car_index).unwrap().position.y;
         for (i, car) in ai_cars.iter_mut().enumerate() {
-            // let is_best = i == min_y_idx || i == max_score_idx;
-			let is_best = true;
+            let is_best = i == min_y_idx || i == max_score_idx;
             car.render(
                 &mut canvas,
                 camera_y_offset,
@@ -183,36 +197,36 @@ fn main() -> Result<(), String> {
             }
             // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
         }
-        // if cars_alive < 4 && !use_controlled_car {
-        //     println!("best score: {}", ai_cars[max_score_idx].score);
-        //     println!("second best score: {}", ai_cars[min_y_idx].score);
+        if cars_alive <= 0 && !use_controlled_car {
+            //     println!("best score: {}", ai_cars[max_score_idx].score);
+            //     println!("second best score: {}", ai_cars[min_y_idx].score);
 
-        //     best_brain
-        //         .save_as_file("brains/best.json")
-        //         .expect("failed to save network");
+            best_brain
+                .save_as_file("brains/best.json")
+                .expect("failed to save network");
 
-        //     sec_best_brain
-        //         .save_as_file("brains/second_best.json")
-        //         .expect("failed to save network");
+            sec_best_brain
+                .save_as_file("brains/second_best.json")
+                .expect("failed to save network");
 
-        //     ai_cars = generate_ai_cars(
-        //         amount_cars,
-        //         &road,
-        //         Some(best_brain.clone()),
-        //         Some(sec_best_brain.clone()),
-        //         &focused_texture,
-        //         &unfocused_texture,
-        //         &damaged_texture,
-        //     );
-        //     cars_alive = ai_cars.len() as i32;
-        //     traffic = generate_traffic(
-        //         traffic_size,
-        //         w_height as i32,
-        //         &road,
-        //         &texture_pool,
-        //         &damaged_texture,
-        //     );
-        // }
+            ai_cars = generate_ai_cars(
+                amount_cars,
+                &road,
+                Some(best_brain.clone()),
+				Some(sec_best_brain.clone()),
+                &focused_texture,
+                &unfocused_texture,
+                &damaged_texture,
+            );
+            cars_alive = ai_cars.len() as i32;
+            traffic = generate_traffic(
+                traffic_size,
+                w_height as i32,
+                &road,
+                &texture_pool,
+                &damaged_texture,
+            );
+        }
         if use_controlled_car {
             controlled_car.render(
                 &mut canvas,
@@ -233,6 +247,10 @@ fn main() -> Result<(), String> {
 
         // println!("cars alive: {}", cars_alive);
     }
+    best_brain
+        .save_as_file("brains/best.json")
+        .expect("failed to save network");
+    println!("out of loop: saved network");
 
     Ok(())
 }
@@ -249,24 +267,15 @@ fn generate_ai_cars<'a>(
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
 
-    // let mut ref_brain: Option<NeuralNetwork> = None;
-    // let net = NeuralNetwork::load_from_file("brains/best.json");
-    // if let Ok(net) = net {
-    //     ref_brain = Some(net);
-    // }
-
     for i in 0..amount {
-        let t = if i < 30 { 0.666 } else { 0.9 };
+		let brain = if i % 2 == 0 {
+			ref_brain.clone()
+		} else {
+			ref_brain2.clone()
+		};
+        let t = if i % 3 == 0 { 0.08 } else { 0.92 };
         let lane_idx = road.random_lane_idx();
-        car = if i % 2 == 0 {
-            Car::new(lane_idx, fc, uf, dm, ref_brain.as_ref(), t)
-        } else {
-            Car::new(lane_idx, fc, uf, dm, ref_brain2.as_ref(), t)
-        };
-        if car.is_err() {
-            continue;
-        }
-        let mut car = car.unwrap();
+        car = Car::new(lane_idx, fc, uf, dm, brain.as_ref(), t);
         car.src_crop_center(194, 380, 0.3);
         let _ = car.set_in_lane(&road, lane_idx);
         cars.push(car);
@@ -287,13 +296,9 @@ fn generate_traffic<'a>(
         let fc = pool.get();
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc, fc, dm, None, 0.0);
-        if car.is_err() {
-            continue;
-        }
         let max_velocity = rand::thread_rng().gen_range(7.0..8.5);
         let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
 
-        let mut car = car.unwrap();
         car.src_crop_center(194, 380, 0.3);
         car.position.y -= start_y as f32;
         let _ = car.set_in_lane(&road, lane_idx);
@@ -318,7 +323,6 @@ fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
     car.as_dummy(max_velocity);
 }
 
-
 macro_rules! vec4_4096 {
 	($($x:expr),*) => {{
 		let elements = vec![$($x),*];
@@ -333,12 +337,12 @@ macro_rules! vec4_4096 {
 mod test {
     use super::*;
     use network::*;
-	use std::time::Instant;
+    use std::time::Instant;
     use wgpu::Instance;
 
     #[test]
     fn feed_forward_cpu() {
-		let start_time = Instant::now();
+        let start_time = Instant::now();
         let neuron_count = &[4096, 4096, 4096, 4096, 4096];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
@@ -352,8 +356,8 @@ mod test {
         }
         let input = &vec4_4096![0.11, -0.7, 0.5, 0.4];
         let output = net.feed_forward(input);
-		let duration = start_time.elapsed();
-		println!("Time CPU: {} ms", duration.as_millis());
+        let duration = start_time.elapsed();
+        println!("Time CPU: {} ms", duration.as_millis());
         assert_eq!(output.len(), 4096);
     }
 
@@ -371,7 +375,7 @@ mod test {
 
         let mut gpu_handler_factory = GpuHandlerFactory::new(&device, &queue);
 
-		let start_time = Instant::now();
+        let start_time = Instant::now();
         let neuron_count = &[4096, 4096, 4096, 4096, 4096];
         let mut net = NeuralNetwork::new(neuron_count);
         for level in net.levels.iter_mut() {
@@ -385,8 +389,8 @@ mod test {
         }
         let input = &vec4_4096![0.11, -0.7, 0.5, 0.4];
         let output = net.gpu_feed_forward(input, &mut gpu_handler_factory).await;
-		let duration = start_time.elapsed();
-		println!("Time GPU: {} ms", duration.as_millis());
-		assert_eq!(output.len(), 4096);
+        let duration = start_time.elapsed();
+        println!("Time GPU: {} ms", duration.as_millis());
+        assert_eq!(output.len(), 4096);
     }
 }
