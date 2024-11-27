@@ -30,11 +30,12 @@ pub struct Car<'a> {
     pub score: i64,
     last_y: f32,
     changing_lane: bool,
+	break_checking: bool,
+	break_checking_frame_count: u32,
     target_lane: u32,
     current_lane: u32,
     same_y_count: u32,
     hitbox: Vec<Point>,
-    sensor_readings: Vec<f32>,
 }
 
 impl<'a> Car<'a> {
@@ -75,7 +76,7 @@ impl<'a> Car<'a> {
             ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 128, 128, 128, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 256, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -101,8 +102,9 @@ impl<'a> Car<'a> {
             target_lane: current_lane,
             current_lane,
             changing_lane: false,
+			break_checking: false,
+			break_checking_frame_count: 0,
             hitbox: vec![],
-            sensor_readings: vec![],
         }
     }
 
@@ -118,8 +120,8 @@ impl<'a> Car<'a> {
             width.min(self.dimentions.w),
             height.min(self.dimentions.h),
         ));
-        self.dimentions.w = width;
-        self.dimentions.h = height;
+        self.dimentions.w = (width as f64 * self.dimentions.scale) as u32;
+        self.dimentions.h = (height as f64 * self.dimentions.scale) as u32;
 
         for sensor in self.sensors.iter_mut() {
             for ray in sensor.rays.iter_mut() {
@@ -204,20 +206,20 @@ impl<'a> Car<'a> {
             let mut touches: Vec<(Point, f32)> = Vec::new();
             if !self.damaged {
                 for border in borders.iter() {
-					let touch = get_intersectionf(
-						a.x as f32,
-						a.y as f32,
-						b.x as f32,
-						b.y as f32,
-						border.start.x as f32,
-						border.start.y as f32,
-						border.end.x as f32,
-						border.end.y as f32,
-					);
-					if let Some((p, t)) = touch {
-						touches.push((Point::new(p.x as i32, p.y as i32), t));
-					}
-				}
+                    let touch = get_intersectionf(
+                        a.x as f32,
+                        a.y as f32,
+                        b.x as f32,
+                        b.y as f32,
+                        border.start.x as f32,
+                        border.start.y as f32,
+                        border.end.x as f32,
+                        border.end.y as f32,
+                    );
+                    if let Some((p, t)) = touch {
+                        touches.push((Point::new(p.x as i32, p.y as i32), t));
+                    }
+                }
                 for car in traffic.iter() {
                     let points = car.rotate_hitbox_points(offset);
 
@@ -268,11 +270,7 @@ impl<'a> Car<'a> {
         }
 
         if self.brain.is_some() && !self.damaged {
-            let outputs = self
-                .brain
-                .as_mut()
-                .unwrap()
-                .feed_forward(&readings);
+            let outputs = self.brain.as_mut().unwrap().feed_forward(&readings);
             assert_eq!(outputs.len(), 4);
             self.controls.forward = outputs[0] > 0.33;
             self.controls.backward = outputs[1] > 0.33;
@@ -406,34 +404,53 @@ impl<'a> Car<'a> {
         self.apply_friction();
 
         if self.dummy {
-            let rand_num = rand::thread_rng().gen_range(1..1024);
-            if rand_num == 1 {
-                self.motion.velocity /= 1.5;
-            } else if rand_num > 1024 - 32 {
-                self.motion.velocity = self.motion.max_velocity - 0.01;
-            }
+            // let rand_num = rand::thread_rng().gen_range(1..60 * 6);
+            // if rand_num == 1 && !self.changing_lane{
+            //     self.motion.velocity /= 1.4;
+            // } else if rand_num > 60 * 6 - 30 {
+            //     self.motion.velocity = self.motion.max_velocity - 0.01;
+            // }
+
+			if !self.break_checking {
+				let should_break_check = rand::thread_rng().gen_range(1..60 * 4) == 1;
+				if should_break_check {
+					self.break_checking = true;
+					self.motion.velocity /= 1.3;
+					self.break_checking_frame_count = 40;
+				}
+			} else {
+				if self.break_checking_frame_count == 0 {
+					self.break_checking = false;
+					self.motion.velocity = self.motion.max_velocity - 0.01;
+				} else {
+					self.break_checking_frame_count -= 1;
+				}
+			}
 
             if !self.changing_lane {
-                let should_change_lane = rand::thread_rng().gen_range(1..256) == 1;
+                let should_change_lane = rand::thread_rng().gen_range(1..60 * 4) == 1;
                 if should_change_lane {
                     self.changing_lane = true;
                     self.target_lane = road.random_lane_idx();
+                    let aggressiveness = rand::thread_rng().gen_range(4..12);
                     if self.current_lane > self.target_lane {
-                        self.turn_left_by(9.0);
+                        self.turn_left_by(aggressiveness as f64);
                     } else if self.current_lane < self.target_lane {
-                        self.turn_right_by(9.0);
+                        self.turn_right_by(aggressiveness as f64);
                     } else {
                         self.changing_lane = false;
                     }
                 }
             } else {
-                let target_x = road.lane_center(self.target_lane).unwrap();
-                let xmin = target_x - 2.0;
-                let xmax = target_x + 2.0;
-                let x = self.position.x + (self.dimentions.w as f32 / 2.0);
-                if self.position.x > xmin && self.position.x < xmax {
+                let target_x = road.lane_center(self.target_lane).unwrap()
+                    - (self.dimentions.w as f32 / 2.0);
+                let x = self.position.x;
+				let xmin = x - 1.0;
+				let xmax = x + 1.0;
+                if xmin > target_x || xmax < target_x {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
+                    self.current_lane = self.target_lane;
                 }
             }
         }

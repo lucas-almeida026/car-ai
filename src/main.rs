@@ -27,8 +27,9 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 400;
-    let traffic_size = 4;
+    let amount_cars = 200;
+    let traffic_size = 5;
+    let traffic_min_velocity = 8.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -62,12 +63,13 @@ fn main() -> Result<(), String> {
     );
     let mut min_y_idx: usize = 0;
     let mut max_score_idx: usize = 1;
-    let mut best_brain = ai_cars[min_y_idx].brain.clone().unwrap();
-    let mut sec_best_brain = ai_cars[max_score_idx].brain.clone().unwrap();
+    let mut best_brain = ai_cars.get(min_y_idx).and_then(|c| c.brain.clone());
+    let mut sec_best_brain = ai_cars.get(max_score_idx).and_then(|c| c.brain.clone());
     let mut cars_alive = ai_cars.len() as i32;
 
     let mut traffic = generate_traffic(
         traffic_size,
+        traffic_min_velocity,
         w_height as i32,
         &road,
         &texture_pool,
@@ -135,20 +137,22 @@ fn main() -> Result<(), String> {
             .position(|c| c.score == max_score)
             .unwrap_or(0);
 
-        if ai_cars[n_min_y_idx].position.y < ai_cars[min_y_idx].position.y {
+        if ai_cars.get(n_min_y_idx).map(|c| c.position.y)
+            < ai_cars.get(min_y_idx).map(|c| c.position.y)
+        {
             min_y_idx = n_min_y_idx;
-            println!("changed min_y: {min_y_idx}");
-            println!("score: {}", ai_cars[min_y_idx].score);
-            best_brain = ai_cars[min_y_idx].brain.clone().unwrap();
-            // best_brain = ai_cars[n_min_y_idx].brain.clone().unwrap();
+            // println!("changed min_y: {min_y_idx}");
+            // println!("score: {}", ai_cars[min_y_idx].score);
+            best_brain = ai_cars[min_y_idx].brain.clone();
         }
-        if ai_cars[n_max_score_idx].position.y < ai_cars[max_score_idx].position.y
+        if ai_cars.get(n_max_score_idx).map(|c| c.position.y)
+            < ai_cars.get(max_score_idx).map(|c| c.position.y)
             && ai_cars[n_max_score_idx].score > ai_cars[max_score_idx].score
         {
             max_score_idx = n_max_score_idx;
-            println!("changed max_score: {max_score_idx}");
-            println!("score: {}", ai_cars[max_score_idx].score);
-            sec_best_brain = ai_cars[n_max_score_idx].brain.clone().unwrap();
+            // println!("changed max_score: {max_score_idx}");
+            // println!("score: {}", ai_cars[max_score_idx].score);
+            sec_best_brain = ai_cars[n_max_score_idx].brain.clone();
         }
 
         canvas.set_draw_color(Color::RGB(12, 12, 16));
@@ -157,7 +161,10 @@ fn main() -> Result<(), String> {
         let camera_y_offset = if use_controlled_car {
             controlled_car.screen_offset(w_height as f32 * 0.7)
         } else {
-            ai_cars[min_y_idx].position.y - (w_height as f32 * 0.7)
+            ai_cars
+                .get(min_y_idx)
+                .map(|c| c.position.y - (w_height as f32 * 0.7))
+                .unwrap_or(traffic[0].position.y - (w_height as f32 * 0.7))
             // controlled_car.screen_offset(w_height as f32 * 0.7)
         };
 
@@ -197,23 +204,22 @@ fn main() -> Result<(), String> {
             }
             // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
         }
-        if cars_alive <= 0 && !use_controlled_car {
-            //     println!("best score: {}", ai_cars[max_score_idx].score);
-            //     println!("second best score: {}", ai_cars[min_y_idx].score);
+        if cars_alive <= 0 && !use_controlled_car && ai_cars.len() > 0 {
+            best_brain.as_ref().map(|b| {
+                b.save_as_file("brains/best.json")
+                    .expect("failed to save network");
+            });
 
-            best_brain
-                .save_as_file("brains/best.json")
-                .expect("failed to save network");
-
-            sec_best_brain
-                .save_as_file("brains/second_best.json")
-                .expect("failed to save network");
+            sec_best_brain.as_ref().map(|b| {
+                b.save_as_file("brains/second_best.json")
+                    .expect("failed to save network");
+            });
 
             ai_cars = generate_ai_cars(
                 amount_cars,
                 &road,
-                Some(best_brain.clone()),
-				Some(sec_best_brain.clone()),
+                best_brain.clone(),
+                sec_best_brain.clone(),
                 &focused_texture,
                 &unfocused_texture,
                 &damaged_texture,
@@ -221,6 +227,7 @@ fn main() -> Result<(), String> {
             cars_alive = ai_cars.len() as i32;
             traffic = generate_traffic(
                 traffic_size,
+                traffic_min_velocity,
                 w_height as i32,
                 &road,
                 &texture_pool,
@@ -247,9 +254,10 @@ fn main() -> Result<(), String> {
 
         // println!("cars alive: {}", cars_alive);
     }
-    best_brain
-        .save_as_file("brains/best.json")
-        .expect("failed to save network");
+    best_brain.map(|b| {
+        b.save_as_file("brains/best.json")
+            .expect("failed to save network");
+    });
     println!("out of loop: saved network");
 
     Ok(())
@@ -268,14 +276,14 @@ fn generate_ai_cars<'a>(
     let mut car;
 
     for i in 0..amount {
-		let brain = if i % 2 == 0 {
-			ref_brain.clone()
-		} else {
-			ref_brain2.clone()
-		};
-        let t = if i % 3 == 0 { 0.08 } else { 0.92 };
+        let brain = if i % 2 == 0 {
+            ref_brain.as_ref()
+        } else {
+            ref_brain2.as_ref()
+        };
+        let t = if i % 5 == 0 { 0.33 } else { 0.92 };
         let lane_idx = road.random_lane_idx();
-        car = Car::new(lane_idx, fc, uf, dm, brain.as_ref(), t);
+        car = Car::new(lane_idx, fc, uf, dm, brain, t);
         car.src_crop_center(194, 380, 0.3);
         let _ = car.set_in_lane(&road, lane_idx);
         cars.push(car);
@@ -285,6 +293,7 @@ fn generate_ai_cars<'a>(
 
 fn generate_traffic<'a>(
     amount: u32,
+    min_velocity: f32,
     h: i32,
     road: &'a Road,
     pool: &'a TexturePool,
@@ -296,7 +305,7 @@ fn generate_traffic<'a>(
         let fc = pool.get();
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc, fc, dm, None, 0.0);
-        let max_velocity = rand::thread_rng().gen_range(7.0..8.5);
+        let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 1.5);
         let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
 
         car.src_crop_center(194, 380, 0.3);
