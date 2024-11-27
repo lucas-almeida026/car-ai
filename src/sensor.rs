@@ -53,9 +53,9 @@ impl Sensor {
 		&self.readings
     }
 
-    pub fn render(&self, canvas: &mut Canvas<Window>, is_best: bool) -> Result<(), String> {
+    pub fn render(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
         for ray in self.rays.iter() {
-            ray.render(canvas, is_best)?;
+            ray.render(canvas)?;
         }
 		Ok(())
     }
@@ -155,10 +155,7 @@ impl Ray {
         }
     }
 
-    pub fn render(&self, canvas: &mut Canvas<Window>, is_best: bool) -> Result<(), String> {
-        if !is_best {
-            return Ok(());
-        }
+    pub fn render(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
         canvas.set_draw_color(Color::RGB(32, 232, 32));
         canvas.draw_fline(self.start, self.mid)?;
 

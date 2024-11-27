@@ -28,14 +28,13 @@ pub struct Car<'a> {
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
     pub score: i64,
-    last_y: f32,
     changing_lane: bool,
-	break_checking: bool,
-	break_checking_frame_count: u32,
+    break_checking: bool,
+    break_checking_frame_count: u32,
     target_lane: u32,
     current_lane: u32,
-    same_y_count: u32,
     hitbox: Vec<Point>,
+    sensor_readings: Vec<f32>,
 }
 
 impl<'a> Car<'a> {
@@ -76,7 +75,7 @@ impl<'a> Car<'a> {
             ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 256, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 64, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -97,14 +96,13 @@ impl<'a> Car<'a> {
             brain: Some(brain),
             sensors,
             score: 0,
-            last_y: 600.0,
-            same_y_count: 0,
             target_lane: current_lane,
             current_lane,
             changing_lane: false,
-			break_checking: false,
-			break_checking_frame_count: 0,
+            break_checking: false,
+            break_checking_frame_count: 0,
             hitbox: vec![],
+            sensor_readings: vec![0.0; total_sensors as usize],
         }
     }
 
@@ -151,53 +149,10 @@ impl<'a> Car<'a> {
         y - scaled_h > (h as f32)
     }
 
-    pub fn render(
-        &mut self,
-        canvas: &mut Canvas<Window>,
-        offset: f32,
-        borders: &Vec<Border>,
-        traffic: &Vec<Car>,
-        is_best: bool,
-        cars_alive: &mut i32,
-    ) -> Result<(), String> {
-        // render texture
-        let (scaled_w, scaled_h) = self.src_dimentions_scaled();
-        let mut drawing_texture = if is_best {
-            self.focused_texture
-        } else {
-            self.unfocused_texture
-        };
-
+    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
         if !self.damaged {
             self.score += 1;
-        } else {
-            drawing_texture = self.damaged_texture;
         }
-
-        let dst_rect = FRect::new(
-            self.position.x,
-            self.position.y as f32 - offset,
-            scaled_w,
-            scaled_h,
-        );
-
-        canvas.copy_ex_f(
-            drawing_texture,
-            self.src_rect,
-            dst_rect,
-            self.position.angle,
-            None,
-            false,
-            false,
-        )?;
-
-        // assert_eq!(borders.len(), 2, "borders.len() == 2");
-        // let road_width = borders[1].start.x - borders[0].start.x;
-        // let x_in_road = self.position.x - borders[0].start.x as f32;
-        // let close_l = x_in_road < self.dimentions.w as f32 / 2.0 / 1.66;
-        // let close_r = x_in_road > road_width as f32 - self.dimentions.w as f32 / 1.66;
-
-        // render hitbox
         self.hitbox = self.rotate_hitbox_points(offset);
 
         for i in 0..self.hitbox.len() {
@@ -205,7 +160,7 @@ impl<'a> Car<'a> {
             let b = self.hitbox[(i + 1) % self.hitbox.len()];
             let mut touches: Vec<(Point, f32)> = Vec::new();
             if !self.damaged {
-                for border in borders.iter() {
+                for border in road.borders.iter() {
                     let touch = get_intersectionf(
                         a.x as f32,
                         a.y as f32,
@@ -222,7 +177,6 @@ impl<'a> Car<'a> {
                 }
                 for car in traffic.iter() {
                     let points = car.rotate_hitbox_points(offset);
-
                     for i in 0..points.len() {
                         let c = points[i];
                         let d = points[(i + 1) % points.len()];
@@ -245,32 +199,31 @@ impl<'a> Car<'a> {
                 self.damaged = true;
                 self.changing_lane = false;
                 self.position.angle = 0.0;
-                canvas.set_draw_color(Color::RGB(255, 12, 255));
-            } else {
-                canvas.set_draw_color(Color::RGB(12, 0, 255));
             }
-
-            canvas.draw_line(a, b)?;
         }
-
-        let mut readings = vec![];
+		
         if !self.damaged {
+            self.sensor_readings.truncate(0);
             for sensor in self.sensors.iter_mut() {
                 let r = sensor.update(
                     self.position.x,
                     self.position.y,
                     self.position.angle,
                     offset,
-                    &borders,
+                    &road.borders,
                     &traffic,
                 );
-                readings.append(&mut r.clone());
-                sensor.render(canvas, is_best).map_err(|e| e.to_string())?;
+                self.sensor_readings.append(&mut r.clone());
             }
+            self.score += 1;
         }
 
         if self.brain.is_some() && !self.damaged {
-            let outputs = self.brain.as_mut().unwrap().feed_forward(&readings);
+            let outputs = self
+                .brain
+                .as_mut()
+                .unwrap()
+                .feed_forward(&self.sensor_readings);
             assert_eq!(outputs.len(), 4);
             self.controls.forward = outputs[0] > 0.33;
             self.controls.backward = outputs[1] > 0.33;
@@ -279,22 +232,61 @@ impl<'a> Car<'a> {
             // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
         }
 
-        if offset == self.last_y {
-            self.same_y_count += 1;
-            // self.score -= 2;
-            if self.same_y_count > 60 * 2 && !self.damaged {
-                *cars_alive -= 1;
-                self.damaged = true;
+        self.update_position(road);
+    }
+
+    pub fn render(
+        &mut self,
+        canvas: &mut Canvas<Window>,
+        offset: f32,
+        is_best: bool,
+    ) -> Result<(), String> {
+        // render texture
+        let (scaled_w, scaled_h) = self.src_dimentions_scaled();
+        let mut drawing_texture = if is_best {
+            self.focused_texture
+        } else {
+            self.unfocused_texture
+        };
+
+        if self.damaged {
+            drawing_texture = self.damaged_texture;
+            canvas.set_draw_color(Color::RGB(255, 12, 255));
+        } else {
+            canvas.set_draw_color(Color::RGB(12, 0, 255));
+        }
+
+        let dst_rect = FRect::new(
+            self.position.x,
+            self.position.y as f32 - offset,
+            scaled_w,
+            scaled_h,
+        );
+
+        canvas.copy_ex_f(
+            drawing_texture,
+            self.src_rect,
+            dst_rect,
+            self.position.angle,
+            None,
+            false,
+            false,
+        )?;
+
+        // render hitbox
+        for i in 0..self.hitbox.len() {
+            let a = self.hitbox[i];
+            let b = self.hitbox[(i + 1) % self.hitbox.len()];
+            canvas.draw_line(a, b)?;
+        }
+
+        if !self.damaged {
+            for sensor in self.sensors.iter_mut() {
+                if is_best {
+                    sensor.render(canvas).map_err(|e| e.to_string())?;
+                }
             }
-        } else if self.position.y < self.last_y {
-            // self.score += 2;
-        } else if self.damaged {
-            self.score = -100_000_000;
         }
-        if self.motion.velocity > self.motion.max_velocity * 0.7 {
-            self.score += 1;
-        }
-        self.last_y = offset;
         Ok(())
     }
 
@@ -370,7 +362,7 @@ impl<'a> Car<'a> {
             .collect()
     }
 
-    pub fn update_position(&mut self, road: &Road) {
+    fn update_position(&mut self, road: &Road) {
         if self.damaged {
             self.motion.velocity = 0.0;
             return;
@@ -411,21 +403,21 @@ impl<'a> Car<'a> {
             //     self.motion.velocity = self.motion.max_velocity - 0.01;
             // }
 
-			if !self.break_checking {
-				let should_break_check = rand::thread_rng().gen_range(1..60 * 4) == 1;
-				if should_break_check {
-					self.break_checking = true;
-					self.motion.velocity /= 1.3;
-					self.break_checking_frame_count = 40;
-				}
-			} else {
-				if self.break_checking_frame_count == 0 {
-					self.break_checking = false;
-					self.motion.velocity = self.motion.max_velocity - 0.01;
-				} else {
-					self.break_checking_frame_count -= 1;
-				}
-			}
+            if !self.break_checking {
+                let should_break_check = rand::thread_rng().gen_range(1..60 * 4) == 1;
+                if should_break_check {
+                    self.break_checking = true;
+                    self.motion.velocity /= 1.3;
+                    self.break_checking_frame_count = 40;
+                }
+            } else {
+                if self.break_checking_frame_count == 0 {
+                    self.break_checking = false;
+                    self.motion.velocity = self.motion.max_velocity - 0.01;
+                } else {
+                    self.break_checking_frame_count -= 1;
+                }
+            }
 
             if !self.changing_lane {
                 let should_change_lane = rand::thread_rng().gen_range(1..60 * 4) == 1;
@@ -442,11 +434,11 @@ impl<'a> Car<'a> {
                     }
                 }
             } else {
-                let target_x = road.lane_center(self.target_lane).unwrap()
-                    - (self.dimentions.w as f32 / 2.0);
+                let target_x =
+                    road.lane_center(self.target_lane).unwrap() - (self.dimentions.w as f32 / 2.0);
                 let x = self.position.x;
-				let xmin = x - 1.0;
-				let xmax = x + 1.0;
+                let xmin = x - 1.0;
+                let xmax = x + 1.0;
                 if xmin > target_x || xmax < target_x {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
@@ -571,25 +563,21 @@ impl<'a> ControlledCar<'a> {
         Self { car }
     }
 
-    pub fn update_position(&mut self, road: &Road) {
-        self.car.update_position(road);
-    }
-
     pub fn screen_offset(&self, target_y: f32) -> f32 {
         self.car.position.y - target_y
+    }
+
+    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
+        self.car.update(offset, road, traffic, cars_alive);
     }
 
     pub fn render(
         &mut self,
         canvas: &mut Canvas<Window>,
         offset: f32,
-        borders: &Vec<Border>,
-        traffic: &Vec<Car>,
         is_best: bool,
-        cars_alive: &mut i32,
     ) -> Result<(), String> {
-        self.car
-            .render(canvas, offset, borders, traffic, is_best, cars_alive)
+        self.car.render(canvas, offset, is_best)
     }
 
     pub fn process_event(&mut self, event: &Event) {

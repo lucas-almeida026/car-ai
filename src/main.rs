@@ -27,8 +27,8 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 200;
-    let traffic_size = 5;
+    let amount_cars = 100;
+    let traffic_size = 4;
     let traffic_min_velocity = 8.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
@@ -108,13 +108,6 @@ fn main() -> Result<(), String> {
                 controlled_car.process_event(&event);
             }
         }
-        if use_controlled_car {
-            controlled_car.update_position(&road);
-        } else {
-            for car in ai_cars.iter_mut() {
-                car.update_position(&road);
-            }
-        }
 
         let max_score = ai_cars
             .iter()
@@ -171,15 +164,17 @@ fn main() -> Result<(), String> {
         road.render(&mut canvas, camera_y_offset)?;
 
         for car in &mut traffic.iter_mut() {
-            car.update_position(&road);
-            car.render(
+			car.render(
                 &mut canvas,
                 camera_y_offset,
-                &road.borders,
-                &vec![],
                 false,
-                &mut 1,
             )?;
+			car.update(
+                camera_y_offset,
+                &road,
+                &vec![],
+                &mut 1,
+            );
             let passed = car.is_passed_bottom_bound(w_height as i32, camera_y_offset);
             if passed {
                 reset_passed_car(car, w_width as f32, w_height as f32, &road);
@@ -191,11 +186,15 @@ fn main() -> Result<(), String> {
             car.render(
                 &mut canvas,
                 camera_y_offset,
-                &road.borders,
-                &traffic,
                 is_best,
-                &mut cars_alive,
             )?;
+			car.update(
+                camera_y_offset,
+                &road,
+                &traffic,
+                &mut cars_alive,
+            );
+
             if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
                 if !car.damaged {
                     car.damaged = true;
@@ -238,11 +237,14 @@ fn main() -> Result<(), String> {
             controlled_car.render(
                 &mut canvas,
                 camera_y_offset,
-                &road.borders,
-                &traffic,
                 true,
-                &mut 0,
             )?;
+			controlled_car.update(
+                camera_y_offset,
+                &road,
+                &vec![],
+                &mut 1,
+            );
         }
 
         canvas.present();
