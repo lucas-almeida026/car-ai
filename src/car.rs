@@ -201,7 +201,7 @@ impl<'a> Car<'a> {
                 self.position.angle = 0.0;
             }
         }
-		
+
         if !self.damaged {
             self.sensor_readings.truncate(0);
             for sensor in self.sensors.iter_mut() {
@@ -439,7 +439,7 @@ impl<'a> Car<'a> {
                 let x = self.position.x;
                 let xmin = x - 1.0;
                 let xmax = x + 1.0;
-                if xmin > target_x || xmax < target_x {
+                if xmin < target_x && xmax > target_x {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
                     self.current_lane = self.target_lane;

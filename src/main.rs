@@ -349,6 +349,8 @@ mod test {
     use super::*;
     use network::*;
     use std::time::Instant;
+	use tokio::time;
+	use futures::future;
     use wgpu::Instance;
 
     #[test]
@@ -404,4 +406,6 @@ mod test {
         println!("Time GPU: {} ms", duration.as_millis());
         assert_eq!(output.len(), 4096);
     }
+
+
 }
