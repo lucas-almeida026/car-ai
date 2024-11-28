@@ -2,6 +2,7 @@ use network::NeuralNetwork;
 use rand::Rng;
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 use std::time::{Duration, Instant};
+use rayon::prelude::*;
 
 mod car;
 mod fns;
@@ -27,7 +28,7 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 100;
+    let amount_cars = 250;
     let traffic_size = 4;
     let traffic_min_velocity = 8.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
@@ -172,8 +173,7 @@ fn main() -> Result<(), String> {
 			car.update(
                 camera_y_offset,
                 &road,
-                &vec![],
-                &mut 1,
+                &vec![]
             );
             let passed = car.is_passed_bottom_bound(w_height as i32, camera_y_offset);
             if passed {
@@ -188,21 +188,30 @@ fn main() -> Result<(), String> {
                 camera_y_offset,
                 is_best,
             )?;
-			car.update(
-                camera_y_offset,
-                &road,
-                &traffic,
-                &mut cars_alive,
-            );
+        }
 
+
+		// ai_cars.par_iter_mut().for_each(|car| {
+		// 	car.update(
+		// 		camera_y_offset,
+		// 		&road,
+		// 		&traffic
+		// 	);
+		// });
+
+		for car in ai_cars.iter_mut() {
+			if car.did_just_crashed {
+				cars_alive -= 1;
+				car.did_just_crashed = false;
+			}
             if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
                 if !car.damaged {
                     car.damaged = true;
                     cars_alive -= 1;
                 }
             }
-            // println!("past bounds: {}", car.is_passed_bottom_bound(w_height as i32, camera_y_offset))
-        }
+		}
+		
         if cars_alive <= 0 && !use_controlled_car && ai_cars.len() > 0 {
             best_brain.as_ref().map(|b| {
                 b.save_as_file("brains/best.json")

@@ -215,6 +215,7 @@ dependencies = [
  "futures",
  "image",
  "rand",
+ "rayon",
  "sdl2",
  "serde",
  "serde_json",

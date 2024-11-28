@@ -35,6 +35,7 @@ pub struct Car<'a> {
     current_lane: u32,
     hitbox: Vec<Point>,
     sensor_readings: Vec<f32>,
+	pub did_just_crashed: bool
 }
 
 impl<'a> Car<'a> {
@@ -75,7 +76,7 @@ impl<'a> Car<'a> {
             ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 64, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 256, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -103,6 +104,7 @@ impl<'a> Car<'a> {
             break_checking_frame_count: 0,
             hitbox: vec![],
             sensor_readings: vec![0.0; total_sensors as usize],
+			did_just_crashed: false
         }
     }
 
@@ -149,7 +151,7 @@ impl<'a> Car<'a> {
         y - scaled_h > (h as f32)
     }
 
-    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
+    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>) {
         if !self.damaged {
             self.score += 1;
         }
@@ -194,7 +196,7 @@ impl<'a> Car<'a> {
 
             if touches.len() > 0 {
                 if !self.damaged {
-                    *cars_alive -= 1;
+                    self.did_just_crashed = true;
                 }
                 self.damaged = true;
                 self.changing_lane = false;
@@ -568,7 +570,11 @@ impl<'a> ControlledCar<'a> {
     }
 
     pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
-        self.car.update(offset, road, traffic, cars_alive);
+        self.car.update(offset, road, traffic);
+		if self.car.did_just_crashed {
+			*cars_alive -= 1;
+			self.car.did_just_crashed = false;
+		}
     }
 
     pub fn render(
