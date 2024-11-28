@@ -14,16 +14,16 @@ use crate::road::{Border, Road};
 use crate::sensor::Sensor;
 use crate::texture::{self, SizedTexture, TexturePool};
 
-pub struct Car<'a> {
+pub struct Car {
     dimentions: Dimentions,
     pub position: Position,
     sensors: Vec<Sensor>,
     motion: Motion,
     controls: Controls,
     pub damaged: bool,
-    focused_texture: &'a Texture<'a>,
-    unfocused_texture: &'a Texture<'a>,
-    damaged_texture: &'a Texture<'a>,
+    // focused_texture: &'a Texture<'a>,
+    // unfocused_texture: &'a Texture<'a>,
+    // damaged_texture: &'a Texture<'a>,
     dummy: bool,
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
@@ -38,16 +38,18 @@ pub struct Car<'a> {
 	pub did_just_crashed: bool
 }
 
-impl<'a> Car<'a> {
+impl Car {
     pub fn new(
         current_lane: u32,
-        focused: &'a SizedTexture<'a>,
-        unfocused: &'a SizedTexture<'a>,
-        damaged: &'a SizedTexture<'a>,
+        // focused: &'a SizedTexture<'a>,
+        // unfocused: &'a SizedTexture<'a>,
+        // damaged: &'a SizedTexture<'a>,
+		texture_width: u32,
+		texture_height: u32,
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
     ) -> Self {
-        let dimentions = Dimentions::new(focused.width, focused.height, 1.0);
+        let dimentions = Dimentions::new(texture_width, texture_height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
         let motion = Motion::new(0.0, 10.0, 0.4, 0.08);
         let controls = Controls::new();
@@ -89,9 +91,9 @@ impl<'a> Car<'a> {
             motion,
             controls,
             damaged: false,
-            focused_texture: &focused.texture,
-            unfocused_texture: &unfocused.texture,
-            damaged_texture: &damaged.texture,
+            // focused_texture: &focused.texture,
+            // unfocused_texture: &unfocused.texture,
+            // damaged_texture: &damaged.texture,
             src_rect: None,
             dummy: false,
             brain: Some(brain),
@@ -242,17 +244,20 @@ impl<'a> Car<'a> {
         canvas: &mut Canvas<Window>,
         offset: f32,
         is_best: bool,
+		focused_texture: &Texture,
+		unfocused_texture: &Texture,
+		damaged_texture: &Texture
     ) -> Result<(), String> {
         // render texture
         let (scaled_w, scaled_h) = self.src_dimentions_scaled();
         let mut drawing_texture = if is_best {
-            self.focused_texture
+            focused_texture
         } else {
-            self.unfocused_texture
+            unfocused_texture
         };
 
         if self.damaged {
-            drawing_texture = self.damaged_texture;
+            drawing_texture = damaged_texture;
             canvas.set_draw_color(Color::RGB(255, 12, 255));
         } else {
             canvas.set_draw_color(Color::RGB(12, 0, 255));
@@ -556,11 +561,11 @@ impl Controls {
     }
 }
 
-pub struct ControlledCar<'a> {
-    car: Car<'a>,
+pub struct ControlledCar{
+    car: Car,
 }
-impl<'a> ControlledCar<'a> {
-    pub fn new(mut car: Car<'a>) -> Self {
+impl ControlledCar {
+    pub fn new(mut car: Car) -> Self {
         car.brain = None;
         Self { car }
     }
@@ -582,8 +587,11 @@ impl<'a> ControlledCar<'a> {
         canvas: &mut Canvas<Window>,
         offset: f32,
         is_best: bool,
+		focused_texture: &Texture,
+		unfocused_texture: &Texture,
+		damaged_texture: &Texture
     ) -> Result<(), String> {
-        self.car.render(canvas, offset, is_best)
+        self.car.render(canvas, offset, is_best, focused_texture, unfocused_texture, damaged_texture)
     }
 
     pub fn process_event(&mut self, event: &Event) {
