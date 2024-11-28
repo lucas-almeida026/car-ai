@@ -21,9 +21,6 @@ pub struct Car {
     motion: Motion,
     controls: Controls,
     pub damaged: bool,
-    // focused_texture: &'a Texture<'a>,
-    // unfocused_texture: &'a Texture<'a>,
-    // damaged_texture: &'a Texture<'a>,
     dummy: bool,
     pub brain: Option<NeuralNetwork>,
     src_rect: Option<Rect>,
@@ -35,17 +32,14 @@ pub struct Car {
     current_lane: u32,
     hitbox: Vec<Point>,
     sensor_readings: Vec<f32>,
-	pub did_just_crashed: bool
+    pub did_just_crashed: bool,
 }
 
 impl Car {
     pub fn new(
         current_lane: u32,
-        // focused: &'a SizedTexture<'a>,
-        // unfocused: &'a SizedTexture<'a>,
-        // damaged: &'a SizedTexture<'a>,
-		texture_width: u32,
-		texture_height: u32,
+        texture_width: u32,
+        texture_height: u32,
         ref_brain: Option<&NeuralNetwork>,
         t: f64,
     ) -> Self {
@@ -56,29 +50,29 @@ impl Car {
 
         let sensors = vec![
             Sensor::new(
-                18,
+                36,
                 210.0,
-                PI * 1.5,
+                PI * 1.8,
                 dimentions.w as u16,
                 dimentions.h as u16,
             ),
             Sensor::new(
-                11,
+                22,
                 380.0,
                 PI * 0.3,
                 dimentions.w as u16,
                 dimentions.h as u16,
             ),
             Sensor::new(
-                3,
-                520.0,
+                6,
+                560.0,
                 PI * 0.15,
                 dimentions.w as u16,
                 dimentions.h as u16,
             ),
         ];
         let total_sensors = sensors.iter().map(|s| s.rays.len() as u32).sum();
-        let mut brain = NeuralNetwork::new(&[total_sensors, 256, 256, 256, 256, 4]);
+        let mut brain = NeuralNetwork::new(&[total_sensors, 64, 64, 64, 64, 64, 64, 64, 64, 4]);
         brain.randomize();
 
         if ref_brain.is_some() {
@@ -91,9 +85,6 @@ impl Car {
             motion,
             controls,
             damaged: false,
-            // focused_texture: &focused.texture,
-            // unfocused_texture: &unfocused.texture,
-            // damaged_texture: &damaged.texture,
             src_rect: None,
             dummy: false,
             brain: Some(brain),
@@ -106,7 +97,7 @@ impl Car {
             break_checking_frame_count: 0,
             hitbox: vec![],
             sensor_readings: vec![0.0; total_sensors as usize],
-			did_just_crashed: false
+            did_just_crashed: false,
         }
     }
 
@@ -244,9 +235,9 @@ impl Car {
         canvas: &mut Canvas<Window>,
         offset: f32,
         is_best: bool,
-		focused_texture: &Texture,
-		unfocused_texture: &Texture,
-		damaged_texture: &Texture
+        focused_texture: &Texture,
+        unfocused_texture: &Texture,
+        damaged_texture: &Texture,
     ) -> Result<(), String> {
         // render texture
         let (scaled_w, scaled_h) = self.src_dimentions_scaled();
@@ -561,7 +552,7 @@ impl Controls {
     }
 }
 
-pub struct ControlledCar{
+pub struct ControlledCar {
     car: Car,
 }
 impl ControlledCar {
@@ -576,10 +567,10 @@ impl ControlledCar {
 
     pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
         self.car.update(offset, road, traffic);
-		if self.car.did_just_crashed {
-			*cars_alive -= 1;
-			self.car.did_just_crashed = false;
-		}
+        if self.car.did_just_crashed {
+            *cars_alive -= 1;
+            self.car.did_just_crashed = false;
+        }
     }
 
     pub fn render(
@@ -587,11 +578,18 @@ impl ControlledCar {
         canvas: &mut Canvas<Window>,
         offset: f32,
         is_best: bool,
-		focused_texture: &Texture,
-		unfocused_texture: &Texture,
-		damaged_texture: &Texture
+        focused_texture: &Texture,
+        unfocused_texture: &Texture,
+        damaged_texture: &Texture,
     ) -> Result<(), String> {
-        self.car.render(canvas, offset, is_best, focused_texture, unfocused_texture, damaged_texture)
+        self.car.render(
+            canvas,
+            offset,
+            is_best,
+            focused_texture,
+            unfocused_texture,
+            damaged_texture,
+        )
     }
 
     pub fn process_event(&mut self, event: &Event) {

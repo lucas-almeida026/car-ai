@@ -32,8 +32,8 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 2000;
-    let traffic_size = 5;
+    let amount_cars = 5000;
+    let traffic_size = 4;
     let traffic_min_velocity = 8.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
@@ -69,12 +69,14 @@ fn main() -> Result<(), String> {
     let mut sec_best_brain = ai_cars.get(max_score_idx).and_then(|c| c.brain.clone());
     let mut cars_alive = ai_cars.len() as i32;
 
+	let mut textures = Vec::new();
     let mut traffic = generate_traffic(
         traffic_size,
         traffic_min_velocity,
         w_height as i32,
         &road,
         &texture_pool,
+		&mut textures
     );
 
     let mut event_pump = sdl_context.event_pump()?;
@@ -164,13 +166,14 @@ fn main() -> Result<(), String> {
 
         road.render(&mut canvas, camera_y_offset)?;
 
-        for car in &mut traffic.iter_mut() {
+        for (i, car) in &mut traffic.iter_mut().enumerate() {
+			let st = textures.get(i).unwrap();
             car.render(
                 &mut canvas,
                 camera_y_offset,
                 false,
-                &focused_texture.texture,
-                &focused_texture.texture,
+                &st.texture,
+                &st.texture,
                 &damaged_texture.texture,
             )?;
             car.update(camera_y_offset, &road, &vec![]);
@@ -236,6 +239,7 @@ fn main() -> Result<(), String> {
                 w_height as i32,
                 &road,
                 &texture_pool,
+				&mut textures
             );
         }
         if use_controlled_car {
@@ -300,6 +304,7 @@ fn generate_traffic<'a>(
     h: i32,
     road: &'a Road,
     pool: &'a TexturePool,
+	textures: &mut Vec<&'a SizedTexture<'a>>
 ) -> Vec<Car> {
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
@@ -308,14 +313,16 @@ fn generate_traffic<'a>(
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc.width, fc.height, None, 0.0);
         let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 1.5);
-        let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
-
+        // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
+		let y_step = rand::thread_rng().gen_range(1..6);
+		let start_y = h as f32 + y_step as f32 * 120.0;
         car.src_crop_center(194, 380, 0.3);
-        car.position.y -= start_y as f32;
+        car.position.y -= start_y;
         let _ = car.set_in_lane(&road, lane_idx);
         car.as_dummy(max_velocity);
 
         cars.push(car);
+		textures.push(fc);
     }
     cars
 }
