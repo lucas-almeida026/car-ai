@@ -14,11 +14,10 @@ mod texture;
 use car::{Car, ControlledCar};
 use road::Road;
 use texture::{SizedTexture, TexturePool};
-// use sensor::Sensor;
 
 fn main() -> Result<(), String> {
     ThreadPoolBuilder::new()
-        .num_threads(8)
+        .num_threads(16)
         .build_global()
         .unwrap();
     let sdl_context = sdl2::init()?;

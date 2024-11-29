@@ -2,3 +2,4 @@
 /networks
 /brains
 perf.data*
+/cross-compile
