@@ -61,10 +61,10 @@ impl Road {
             let dashes = Road::dashed_line_vertical(
                 x as i32,
                 self.top / 2 - (offset as i32),
-                5,
+                4,
                 self.bottom as u32,
-                40,
-                40,
+                30,
+                60,
             );
             for dash in dashes {
                 canvas.fill_rect(dash).map_err(|e| e.to_string())?;

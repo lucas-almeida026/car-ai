@@ -45,7 +45,7 @@ impl Car {
     ) -> Self {
         let dimentions = Dimentions::new(texture_width, texture_height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
-        let motion = Motion::new(0.0, 10.0, 0.4, 0.08);
+        let motion = Motion::new(0.0, 100.0, 4.0, 0.08);
         let controls = Controls::new();
 
         let sensors = vec![
@@ -144,7 +144,7 @@ impl Car {
         y - scaled_h > (h as f32)
     }
 
-    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>) {
+    pub fn update(&mut self, delta_t_s: f32, offset: f32, road: &Road, traffic: &Vec<Car>) {
         if !self.damaged {
             self.score += 1;
         }
@@ -227,7 +227,7 @@ impl Car {
             // println!("forward:  {}\nbackward: {}\nleft:     {}\nright:    {}\n\n", outputs[0], outputs[1], outputs[2], outputs[3]);
         }
 
-        self.update_position(road);
+        self.update_position(delta_t_s, road);
     }
 
     pub fn render(
@@ -360,7 +360,7 @@ impl Car {
             .collect()
     }
 
-    fn update_position(&mut self, road: &Road) {
+    fn update_position(&mut self, delta_t_s: f32, road: &Road) {
         if self.damaged {
             self.motion.velocity = 0.0;
             return;
@@ -445,8 +445,17 @@ impl Car {
             }
         }
 
-        self.position.x += self.position.angle.to_radians().sin() as f32 * self.motion.velocity;
-        self.position.y -= self.position.angle.to_radians().cos() as f32 * self.motion.velocity;
+        self.position.x += self.position.angle.to_radians().sin() as f32
+            * self.motion.velocity
+            * (delta_t_s / self.dimentions.scale as f32);
+        self.position.y -= self.position.angle.to_radians().cos() as f32
+            * self.motion.velocity
+            * (delta_t_s / self.dimentions.scale as f32);
+		if !self.dummy {
+			println!("y: {}, vel: {}", self.position.angle.to_radians().cos() as f32
+            * self.motion.velocity
+            * (delta_t_s / self.dimentions.scale as f32), self.motion.velocity)
+		}
     }
 
     pub fn as_dummy(&mut self, max_velocity: f32) {
@@ -565,8 +574,15 @@ impl ControlledCar {
         self.car.position.y - target_y
     }
 
-    pub fn update(&mut self, offset: f32, road: &Road, traffic: &Vec<Car>, cars_alive: &mut i32) {
-        self.car.update(offset, road, traffic);
+    pub fn update(
+        &mut self,
+        delta_t_s: f32,
+        offset: f32,
+        road: &Road,
+        traffic: &Vec<Car>,
+        cars_alive: &mut i32,
+    ) {
+        self.car.update(delta_t_s, offset, road, traffic);
         if self.car.did_just_crashed {
             *cars_alive -= 1;
             self.car.did_just_crashed = false;

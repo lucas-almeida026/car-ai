@@ -1,7 +1,11 @@
 use network::NeuralNetwork;
 use rand::Rng;
 use rayon::{prelude::*, ThreadPoolBuilder};
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
+use sdl2::{
+    event::{Event, WindowEvent},
+    keyboard::Keycode,
+    pixels::Color,
+};
 use std::time::{Duration, Instant};
 
 mod car;
@@ -17,7 +21,7 @@ use texture::{SizedTexture, TexturePool};
 
 fn main() -> Result<(), String> {
     ThreadPoolBuilder::new()
-        .num_threads(16)
+        .num_threads(4)
         .build_global()
         .unwrap();
     let sdl_context = sdl2::init()?;
@@ -31,9 +35,9 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 5000;
-    let traffic_size = 4;
-    let traffic_min_velocity = 8.0;
+    let amount_cars = 1;
+    let traffic_size = 1;
+    let traffic_min_velocity = 80.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -42,7 +46,7 @@ fn main() -> Result<(), String> {
     let damaged_texture = car::create_damaged_texture(&texture_creator)?;
     let texture_pool = car::create_traffic_texture_pool(&texture_creator, traffic_size)?;
 
-    let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.33) as i32, 3);
+    let road = Road::new((w_width / 2) as i32, (w_width as f32 * 0.3) as i32, 3);
     let mut car = Car::new(
         1,
         focused_texture.width,
@@ -68,21 +72,36 @@ fn main() -> Result<(), String> {
     let mut sec_best_brain = ai_cars.get(max_score_idx).and_then(|c| c.brain.clone());
     let mut cars_alive = ai_cars.len() as i32;
 
-	let mut textures = Vec::new();
+    let mut textures = Vec::new();
     let mut traffic = generate_traffic(
         traffic_size,
         traffic_min_velocity,
         w_height as i32,
         &road,
         &texture_pool,
-		&mut textures
+        &mut textures,
     );
 
     let mut event_pump = sdl_context.event_pump()?;
     let target_fps = 60;
     let target_frame_time = Duration::from_millis(1000 / target_fps);
+
+	let mut previous_time = Instant::now();
+	let mut current_second = 0.0;
+	let mut elapsed_seconds = 0;
+
     'running: loop {
-        let frame_start = Instant::now();
+		let current_time = Instant::now();
+		let delta_time = current_time.duration_since(previous_time);
+		previous_time = current_time;
+		let delta_t_s = delta_time.as_secs_f32();
+		current_second += delta_t_s;
+		if current_second >= 1.0 {
+			current_second = 0.0;
+			elapsed_seconds += 1;
+			println!("Seconds: {}", elapsed_seconds);
+		}
+		// println!("{}", delta_time.as_secs_f32());
 
         for event in event_pump.poll_iter() {
             match event {
@@ -166,7 +185,7 @@ fn main() -> Result<(), String> {
         road.render(&mut canvas, camera_y_offset)?;
 
         for (i, car) in &mut traffic.iter_mut().enumerate() {
-			let st = textures.get(i).unwrap();
+            let st = textures.get(i).unwrap();
             car.render(
                 &mut canvas,
                 camera_y_offset,
@@ -175,7 +194,7 @@ fn main() -> Result<(), String> {
                 &st.texture,
                 &damaged_texture.texture,
             )?;
-            car.update(camera_y_offset, &road, &vec![]);
+            car.update(delta_t_s, camera_y_offset, &road, &vec![]);
             let passed = car.is_passed_bottom_bound(w_height as i32, camera_y_offset);
             if passed {
                 reset_passed_car(car, w_width as f32, w_height as f32, &road);
@@ -196,7 +215,7 @@ fn main() -> Result<(), String> {
 
         // update_cars_parallel(&mut ai_cars, 8);
         ai_cars.par_iter_mut().for_each(|car| {
-            car.update(camera_y_offset, &road, &traffic);
+            car.update(delta_t_s, camera_y_offset, &road, &traffic);
         });
 
         for car in ai_cars.iter_mut() {
@@ -238,7 +257,7 @@ fn main() -> Result<(), String> {
                 w_height as i32,
                 &road,
                 &texture_pool,
-				&mut textures
+                &mut textures,
             );
         }
         if use_controlled_car {
@@ -250,15 +269,16 @@ fn main() -> Result<(), String> {
                 &unfocused_texture.texture,
                 &damaged_texture.texture,
             )?;
-            controlled_car.update(camera_y_offset, &road, &vec![], &mut 1);
+            controlled_car.update(delta_t_s, camera_y_offset, &road, &vec![], &mut 1);
         }
 
         canvas.present();
 
-        let frame_duration = frame_start.elapsed();
+        let frame_duration = current_time.elapsed();
         if frame_duration < target_frame_time {
             std::thread::sleep(target_frame_time - frame_duration);
         }
+		// while current_time.elapsed() < target_frame_time {}
 
         // println!("cars alive: {}", cars_alive);
     }
@@ -303,7 +323,7 @@ fn generate_traffic<'a>(
     h: i32,
     road: &'a Road,
     pool: &'a TexturePool,
-	textures: &mut Vec<&'a SizedTexture<'a>>
+    textures: &mut Vec<&'a SizedTexture<'a>>,
 ) -> Vec<Car> {
     let mut cars = Vec::with_capacity(amount as usize);
     let mut car;
@@ -311,17 +331,17 @@ fn generate_traffic<'a>(
         let fc = pool.get();
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc.width, fc.height, None, 0.0);
-        let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 1.5);
+        let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 15.0);
         // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
-		let y_step = rand::thread_rng().gen_range(1..6);
-		let start_y = h as f32 + y_step as f32 * 120.0;
+        let y_step = rand::thread_rng().gen_range(1..6);
+        let start_y = h as f32 + y_step as f32 * 120.0;
         car.src_crop_center(194, 380, 0.3);
         car.position.y -= start_y;
         let _ = car.set_in_lane(&road, lane_idx);
         car.as_dummy(max_velocity);
 
         cars.push(car);
-		textures.push(fc);
+        textures.push(fc);
     }
     cars
 }
