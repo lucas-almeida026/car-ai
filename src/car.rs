@@ -451,11 +451,6 @@ impl Car {
         self.position.y -= self.position.angle.to_radians().cos() as f32
             * self.motion.velocity
             * (delta_t_s / self.dimentions.scale as f32);
-		if !self.dummy {
-			println!("y: {}, vel: {}", self.position.angle.to_radians().cos() as f32
-            * self.motion.velocity
-            * (delta_t_s / self.dimentions.scale as f32), self.motion.velocity)
-		}
     }
 
     pub fn as_dummy(&mut self, max_velocity: f32) {

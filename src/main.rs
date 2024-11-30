@@ -21,7 +21,7 @@ use texture::{SizedTexture, TexturePool};
 
 fn main() -> Result<(), String> {
     ThreadPoolBuilder::new()
-        .num_threads(4)
+        .num_threads(16)
         .build_global()
         .unwrap();
     let sdl_context = sdl2::init()?;
@@ -35,9 +35,9 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 1;
-    let traffic_size = 1;
-    let traffic_min_velocity = 80.0;
+    let amount_cars = 6000;
+    let traffic_size = 4;
+    let traffic_min_velocity = 82.0;
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -88,7 +88,7 @@ fn main() -> Result<(), String> {
 
 	let mut previous_time = Instant::now();
 	let mut current_second = 0.0;
-	let mut elapsed_seconds = 0;
+	let mut frame_count = 0;
 
     'running: loop {
 		let current_time = Instant::now();
@@ -98,10 +98,9 @@ fn main() -> Result<(), String> {
 		current_second += delta_t_s;
 		if current_second >= 1.0 {
 			current_second = 0.0;
-			elapsed_seconds += 1;
-			println!("Seconds: {}", elapsed_seconds);
+			println!("FPS: {}, car_alive: {}", frame_count, cars_alive);
+			frame_count = 0;
 		}
-		// println!("{}", delta_time.as_secs_f32());
 
         for event in event_pump.poll_iter() {
             match event {
@@ -273,6 +272,7 @@ fn main() -> Result<(), String> {
         }
 
         canvas.present();
+		frame_count += 1;
 
         let frame_duration = current_time.elapsed();
         if frame_duration < target_frame_time {
@@ -334,7 +334,7 @@ fn generate_traffic<'a>(
         let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 15.0);
         // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
         let y_step = rand::thread_rng().gen_range(1..6);
-        let start_y = h as f32 + y_step as f32 * 120.0;
+        let start_y = h as f32 + y_step as f32 * 3.0;
         car.src_crop_center(194, 380, 0.3);
         car.position.y -= start_y;
         let _ = car.set_in_lane(&road, lane_idx);
