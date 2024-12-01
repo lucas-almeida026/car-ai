@@ -5,6 +5,7 @@ use sdl2::pixels::Color;
 use sdl2::rect::{FPoint, Point, Rect};
 use sdl2::render::Canvas;
 use sdl2::video::Window;
+use crate::units::Unit;
 
 const INFINITY: i32 = 1000000;
 pub struct Road {
@@ -16,6 +17,7 @@ pub struct Road {
     top: i32,
     bottom: i32,
     pub borders: Vec<Border>,
+	divider_line_height: f64
 }
 
 impl Road {
@@ -40,6 +42,7 @@ impl Road {
                     Point::new(right as i32, INFINITY / 2),
                 ),
             ],
+			divider_line_height: Unit::m(4.12).as_px()
         }
     }
 
@@ -63,8 +66,8 @@ impl Road {
                 self.top / 2 - (offset as i32),
                 4,
                 self.bottom as u32,
-                30,
-                60,
+                self.divider_line_height as u32,
+                (self.divider_line_height * 1.0) as u32,
             );
             for dash in dashes {
                 canvas.fill_rect(dash).map_err(|e| e.to_string())?;

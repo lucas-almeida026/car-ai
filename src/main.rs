@@ -14,6 +14,7 @@ mod network;
 mod road;
 mod sensor;
 mod texture;
+mod units;
 
 use car::{Car, ControlledCar};
 use road::Road;
@@ -35,9 +36,9 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 6000;
-    let traffic_size = 4;
-    let traffic_min_velocity = 82.0;
+    let amount_cars = 110;
+    let traffic_size = 3;
+    let traffic_min_velocity = 22.7777; // 82 km/h
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -86,21 +87,22 @@ fn main() -> Result<(), String> {
     let target_fps = 60;
     let target_frame_time = Duration::from_millis(1000 / target_fps);
 
-	let mut previous_time = Instant::now();
-	let mut current_second = 0.0;
-	let mut frame_count = 0;
+    let mut previous_time = Instant::now();
+    let mut current_second = 0.0;
+    let mut frame_count = 0;
 
     'running: loop {
-		let current_time = Instant::now();
-		let delta_time = current_time.duration_since(previous_time);
-		previous_time = current_time;
-		let delta_t_s = delta_time.as_secs_f32();
-		current_second += delta_t_s;
-		if current_second >= 1.0 {
-			current_second = 0.0;
-			println!("FPS: {}, car_alive: {}", frame_count, cars_alive);
-			frame_count = 0;
-		}
+        let current_time = Instant::now();
+        let delta_time = current_time.duration_since(previous_time);
+        previous_time = current_time;
+        let delta_t_s = delta_time.as_secs_f32();
+        // println!("delta_t_s: {}", delta_t_s);
+        current_second += delta_t_s;
+        if current_second >= 1.0 {
+            current_second = 0.0;
+            // println!("FPS: {}, car_alive: {}", frame_count, cars_alive);
+            frame_count = 0;
+        }
 
         for event in event_pump.poll_iter() {
             match event {
@@ -196,7 +198,13 @@ fn main() -> Result<(), String> {
             car.update(delta_t_s, camera_y_offset, &road, &vec![]);
             let passed = car.is_passed_bottom_bound(w_height as i32, camera_y_offset);
             if passed {
-                reset_passed_car(car, w_width as f32, w_height as f32, &road);
+                reset_passed_car(
+                    car,
+                    traffic_min_velocity,
+                    w_width as f32,
+                    w_height as f32,
+                    &road,
+                );
             }
         }
         // let best_car_y = ai_cars.get(best_car_index).unwrap().position.y;
@@ -272,13 +280,13 @@ fn main() -> Result<(), String> {
         }
 
         canvas.present();
-		frame_count += 1;
+        frame_count += 1;
 
         let frame_duration = current_time.elapsed();
         if frame_duration < target_frame_time {
             std::thread::sleep(target_frame_time - frame_duration);
         }
-		// while current_time.elapsed() < target_frame_time {}
+        // while current_time.elapsed() < target_frame_time {}
 
         // println!("cars alive: {}", cars_alive);
     }
@@ -331,7 +339,7 @@ fn generate_traffic<'a>(
         let fc = pool.get();
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc.width, fc.height, None, 0.0);
-        let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 15.0);
+        let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 4.0); // 4.0 m/s ≃ 15 km/h
         // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
         let y_step = rand::thread_rng().gen_range(1..6);
         let start_y = h as f32 + y_step as f32 * 3.0;
@@ -346,17 +354,13 @@ fn generate_traffic<'a>(
     cars
 }
 
-fn reset_passed_car<'a>(car: &'a mut Car, w: f32, h: f32, road: &'a Road) {
-    let max_velocity = rand::thread_rng().gen_range(6.0..8.5);
-    let jump_y = rand::thread_rng().gen_range((h * 1.5)..(h * 3.5));
-    let lane = rand::thread_rng().gen_range(0..road.lanes);
-
-    car.position.y -= jump_y as f32;
-    car.position.x = road
-        .lane_center(lane as u32)
-        .map(|x| x - (car.scaled_width() as f32 / 2.0))
-        .or(Some(w / 2.0 - (car.scaled_width() as f32 / 2.0)))
-        .unwrap();
+fn reset_passed_car<'a>(car: &'a mut Car, min_velocity: f32, w: f32, h: f32, road: &'a Road) {
+    let lane_idx = road.random_lane_idx();
+    let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 4.0);
+    let y_step = rand::thread_rng().gen_range(1..6);
+    let start_y = h as f32 + (y_step as f32 * (h as f32 * 0.15));
+    car.position.y -= start_y;
+    let _ = car.set_in_lane(&road, lane_idx);
     car.as_dummy(max_velocity);
 }
 

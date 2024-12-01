@@ -10,9 +10,10 @@ use sdl2::video::{Window, WindowContext};
 
 use crate::fns::get_intersectionf;
 use crate::network::NeuralNetwork;
-use crate::road::{Border, Road};
+use crate::road::Road;
 use crate::sensor::Sensor;
 use crate::texture::{self, SizedTexture, TexturePool};
+use crate::units;
 
 pub struct Car {
     dimentions: Dimentions,
@@ -32,7 +33,7 @@ pub struct Car {
     current_lane: u32,
     hitbox: Vec<Point>,
     sensor_readings: Vec<f32>,
-    pub did_just_crashed: bool,
+    pub did_just_crashed: bool
 }
 
 impl Car {
@@ -45,7 +46,7 @@ impl Car {
     ) -> Self {
         let dimentions = Dimentions::new(texture_width, texture_height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
-        let motion = Motion::new(0.0, 100.0, 4.0, 0.08);
+        let motion = Motion::new(0.0, 33.33, 1.8, 0.05);
         let controls = Controls::new();
 
         let sensors = vec![
@@ -97,21 +98,21 @@ impl Car {
             break_checking_frame_count: 0,
             hitbox: vec![],
             sensor_readings: vec![0.0; total_sensors as usize],
-            did_just_crashed: false,
+            did_just_crashed: false
         }
     }
 
-    pub fn src_crop_center(&mut self, width: u32, height: u32, scale: f64) {
+    pub fn src_crop_center(&mut self, width: i32, height: i32, scale: f64) {
         if scale > 0.0 && scale < 1.0 {
             self.dimentions.scale = scale;
         }
-        let x = (self.dimentions.w - width) / 2;
-        let y = (self.dimentions.h - height) / 2;
+        let x = (self.dimentions.w as i32 - width) / 2;
+        let y = (self.dimentions.h as i32 - height) / 2;
         self.src_rect = Some(Rect::new(
             (x as i32).max(0),
             (y as i32).max(0),
-            width.min(self.dimentions.w),
-            height.min(self.dimentions.h),
+            width.min(self.dimentions.w as i32) as u32,
+            height.min(self.dimentions.h as i32) as u32,
         ));
         self.dimentions.w = (width as f64 * self.dimentions.scale) as u32;
         self.dimentions.h = (height as f64 * self.dimentions.scale) as u32;
@@ -366,32 +367,24 @@ impl Car {
             return;
         }
         if self.controls.forward {
-            if self.motion.velocity < self.motion.max_velocity / 2.0 {
-                self.motion.velocity += self.motion.acceleration / 1.6;
-            } else {
-                self.motion.velocity += self.motion.acceleration;
-            }
+            self.motion.velocity += self.motion.acceleration * delta_t_s * 13.34;
         }
         if self.controls.backward {
-            if self.motion.velocity < self.motion.max_velocity / 2.0 {
-                self.motion.velocity -= self.motion.acceleration / 2.0;
-            } else {
-                self.motion.velocity -= self.motion.acceleration / 1.4;
-            }
+			self.motion.velocity -= (self.motion.acceleration / 1.5) * delta_t_s * 13.34;
         }
 
         if self.motion.velocity > 0.1 || self.motion.velocity < -0.1 {
             if self.controls.left {
-                self.turn_left_by(1.2);
+                self.turn_left_by(1.85);
             }
             if self.controls.right {
-                self.turn_right_by(1.2);
+                self.turn_right_by(1.85);
             }
         }
 
         self.normalize_angle();
         self.normalize_velocity();
-        self.apply_friction();
+        self.apply_friction(delta_t_s);
 
         if self.dummy {
             // let rand_num = rand::thread_rng().gen_range(1..60 * 6);
@@ -422,7 +415,7 @@ impl Car {
                 if should_change_lane {
                     self.changing_lane = true;
                     self.target_lane = road.random_lane_idx();
-                    let aggressiveness = rand::thread_rng().gen_range(4..12);
+                    let aggressiveness = rand::thread_rng().gen_range(10..15);
                     if self.current_lane > self.target_lane {
                         self.turn_left_by(aggressiveness as f64);
                     } else if self.current_lane < self.target_lane {
@@ -435,8 +428,8 @@ impl Car {
                 let target_x =
                     road.lane_center(self.target_lane).unwrap() - (self.dimentions.w as f32 / 2.0);
                 let x = self.position.x;
-                let xmin = x - 1.0;
-                let xmax = x + 1.0;
+                let xmin = x - 1.5;
+                let xmax = x + 1.5;
                 if xmin < target_x && xmax > target_x {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
@@ -445,12 +438,11 @@ impl Car {
             }
         }
 
-        self.position.x += self.position.angle.to_radians().sin() as f32
-            * self.motion.velocity
-            * (delta_t_s / self.dimentions.scale as f32);
-        self.position.y -= self.position.angle.to_radians().cos() as f32
-            * self.motion.velocity
-            * (delta_t_s / self.dimentions.scale as f32);
+        self.position.x +=
+            self.position.angle.to_radians().sin() as f32 * units::m_to_px(self.motion.velocity * delta_t_s);
+        self.position.y -=
+            self.position.angle.to_radians().cos() as f32 * units::m_to_px(self.motion.velocity * delta_t_s);
+        //self.position.y -= 1.6
     }
 
     pub fn as_dummy(&mut self, max_velocity: f32) {
@@ -458,7 +450,7 @@ impl Car {
         self.motion.acceleration = 0.0;
         self.motion.velocity = max_velocity - 0.01;
         self.motion.max_velocity = max_velocity;
-        self.motion.friction = 0.0;
+        self.motion.friction_coefficient = 0.0;
         self.sensors = vec![];
         self.dummy = true;
         self.damaged = false;
@@ -466,11 +458,11 @@ impl Car {
     }
 
     fn turn_left_by(&mut self, amount: f64) {
-        self.position.angle -= amount
+        self.position.angle -= amount / 3.6;
     }
 
     fn turn_right_by(&mut self, amount: f64) {
-        self.position.angle += amount
+        self.position.angle += amount / 3.6;
     }
 
     fn normalize_angle(&mut self) {
@@ -486,17 +478,13 @@ impl Car {
         } else if self.motion.velocity < -self.motion.max_velocity / 2.0 {
             self.motion.velocity = -self.motion.max_velocity / 2.0;
         }
-        if self.motion.velocity.abs() < self.motion.friction {
+        if self.motion.velocity.abs() < self.motion.friction_coefficient {
             self.motion.velocity = 0.0;
         }
     }
 
-    fn apply_friction(&mut self) {
-        if self.motion.velocity > 0.0 {
-            self.motion.velocity -= self.motion.friction;
-        } else if self.motion.velocity < 0.0 {
-            self.motion.velocity += self.motion.friction;
-        }
+    fn apply_friction(&mut self, delta_t_s: f32) {
+        self.motion.velocity *= 1.0 - self.motion.friction_coefficient * (delta_t_s * 13.34);
     }
 }
 
@@ -504,10 +492,16 @@ pub struct Dimentions {
     pub w: u32,
     pub h: u32,
     pub scale: f64,
+    h_m: f64,
 }
 impl Dimentions {
     pub fn new(w: u32, h: u32, scale: f64) -> Self {
-        Self { w, h, scale }
+        Self {
+            w,
+            h,
+            scale,
+            h_m: 4.12,
+        } // car has 4.12 meters of length
     }
 }
 
@@ -523,18 +517,22 @@ impl Position {
 }
 
 pub struct Motion {
+    /// in meters per second
     pub velocity: f32,
+    /// in meters per second
     pub max_velocity: f32,
+    /// in meters per second per second
     pub acceleration: f32,
-    pub friction: f32,
+    /// in percentage
+    pub friction_coefficient: f32,
 }
 impl Motion {
-    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction: f32) -> Self {
+    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction_coefficient: f32) -> Self {
         Self {
             velocity,
             max_velocity,
             acceleration,
-            friction,
+            friction_coefficient,
         }
     }
 }
@@ -577,6 +575,7 @@ impl ControlledCar {
         traffic: &Vec<Car>,
         cars_alive: &mut i32,
     ) {
+        // println!("vel: {}", self.car.motion.velocity);
         self.car.update(delta_t_s, offset, road, traffic);
         if self.car.did_just_crashed {
             *cars_alive -= 1;
