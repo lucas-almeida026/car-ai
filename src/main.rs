@@ -36,8 +36,8 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 110;
-    let traffic_size = 3;
+    let amount_cars = 4000;
+    let traffic_size = 4;
     let traffic_min_velocity = 22.7777; // 82 km/h
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
