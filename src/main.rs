@@ -36,7 +36,7 @@ fn main() -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     let use_controlled_car = false;
-    let amount_cars = 4000;
+    let amount_cars = 100;
     let traffic_size = 4;
     let traffic_min_velocity = 22.7777; // 82 km/h
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
@@ -90,7 +90,7 @@ fn main() -> Result<(), String> {
     let mut previous_time = Instant::now();
     let mut current_second = 0.0;
     let mut frame_count = 0;
-	let mut font = ttf_context.load_font("./assets/fonts/RedHatDisplay-Regular.ttf", 128)?;
+	let font = ttf_context.load_font("./assets/fonts/RedHatDisplay-Regular.ttf", 28)?;
 
 	let txt_surface = font
         .render("Hello Rust!")
@@ -100,8 +100,8 @@ fn main() -> Result<(), String> {
         .create_texture_from_surface(&txt_surface)
         .map_err(|e| e.to_string())?;
 
-
-	// let txt_surface = ttf::
+	let (txt_width, txt_height) = txt_surface.size();
+    let txt_target = Rect::new(64, 64, txt_width, txt_height);
 
     'running: loop {
         let current_time = Instant::now();
@@ -291,9 +291,7 @@ fn main() -> Result<(), String> {
             controlled_car.update(delta_t_s, camera_y_offset, &road, &vec![], &mut 1);
         }
 
-	    let target = Rect::new(64, 64, 600, 64);
-
-	    canvas.copy(&txt_texture, None, Some(target))?;
+	    canvas.copy(&txt_texture, None, Some(txt_target))?;
 
         canvas.present();
         frame_count += 1;
