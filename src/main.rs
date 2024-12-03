@@ -2,9 +2,7 @@ use network::NeuralNetwork;
 use rand::Rng;
 use rayon::{prelude::*, ThreadPoolBuilder};
 use sdl2::{
-    event::{Event, WindowEvent},
-    keyboard::Keycode,
-    pixels::Color,
+    event::{Event, WindowEvent}, keyboard::Keycode, pixels::Color, rect::Rect, ttf
 };
 use std::time::{Duration, Instant};
 
@@ -25,10 +23,12 @@ fn main() -> Result<(), String> {
         .num_threads(16)
         .build_global()
         .unwrap();
+
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
     let w_width = 1080;
     let w_height = 800;
+	let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string())?;
     let window = video_subsystem
         .window("AI Car", w_width, w_height)
         .position(100, 100)
@@ -90,6 +90,18 @@ fn main() -> Result<(), String> {
     let mut previous_time = Instant::now();
     let mut current_second = 0.0;
     let mut frame_count = 0;
+	let mut font = ttf_context.load_font("./assets/fonts/RedHatDisplay-Regular.ttf", 128)?;
+
+	let txt_surface = font
+        .render("Hello Rust!")
+        .blended(Color::RGBA(255, 0, 0, 255))
+        .map_err(|e| e.to_string())?;
+    let txt_texture = texture_creator
+        .create_texture_from_surface(&txt_surface)
+        .map_err(|e| e.to_string())?;
+
+
+	// let txt_surface = ttf::
 
     'running: loop {
         let current_time = Instant::now();
@@ -278,6 +290,10 @@ fn main() -> Result<(), String> {
             )?;
             controlled_car.update(delta_t_s, camera_y_offset, &road, &vec![], &mut 1);
         }
+
+	    let target = Rect::new(64, 64, 600, 64);
+
+	    canvas.copy(&txt_texture, None, Some(target))?;
 
         canvas.present();
         frame_count += 1;
