@@ -8,7 +8,7 @@ use sdl2::rect::{FRect, Point, Rect};
 use sdl2::render::{BlendMode, Canvas, Texture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use crate::fns::get_intersectionf;
+use crate::fns::{get_intersectionf, lerpf32};
 use crate::network::NeuralNetwork;
 use crate::road::Road;
 use crate::sensor::Sensor;
@@ -46,7 +46,7 @@ impl Car {
     ) -> Self {
         let dimentions = Dimentions::new(texture_width, texture_height, 1.0);
         let position = Position::new(400.0, 600.0, 0.0);
-        let motion = Motion::new(0.0, 33.33, 1.8, 0.05);
+        let motion = Motion::new(0.0, 33.33, 1.8, 0.05, 70.0, 220.0);
         let controls = Controls::new();
 
         let sensors = vec![
@@ -367,24 +367,23 @@ impl Car {
             return;
         }
         if self.controls.forward {
-            self.motion.velocity += self.motion.acceleration * delta_t_s * 13.34;
-        }
-        if self.controls.backward {
-			self.motion.velocity -= (self.motion.acceleration / 1.5) * delta_t_s * 13.34;
-        }
-
-        if self.motion.velocity > 0.1 || self.motion.velocity < -0.1 {
-            if self.controls.left {
-                self.turn_left_by(1.85);
-            }
-            if self.controls.right {
-                self.turn_right_by(1.85);
-            }
-        }
-
-        self.normalize_angle();
+            self.motion.velocity += self.motion.acceleration * delta_t_s * 11.34;
+        } else if self.controls.backward {
+			self.motion.velocity -= (self.motion.acceleration / 1.5) * delta_t_s * 11.34;
+        } else {
+			self.apply_friction(delta_t_s);
+		}
         self.normalize_velocity();
-        self.apply_friction(delta_t_s);
+
+        if (self.motion.velocity > 0.1 || self.motion.velocity < -0.1) && !self.controls.left && !self.controls.right {
+            self.normalize_steering(delta_t_s);
+        }
+		if self.controls.left {
+			self.turn_left(delta_t_s);
+		} else if self.controls.right {
+			self.turn_right(delta_t_s);
+		}
+        self.normalize_angle();
 
         if self.dummy {
             // let rand_num = rand::thread_rng().gen_range(1..60 * 6);
@@ -415,11 +414,12 @@ impl Car {
                 if should_change_lane {
                     self.changing_lane = true;
                     self.target_lane = road.random_lane_idx();
-                    let aggressiveness = rand::thread_rng().gen_range(10..15);
+                    let aggressiveness = rand::thread_rng().gen_range(5..10);
+					self.motion.steering_velocity = aggressiveness as f32;
                     if self.current_lane > self.target_lane {
-                        self.turn_left_by(aggressiveness as f64);
+                        self.turn_left(delta_t_s);
                     } else if self.current_lane < self.target_lane {
-                        self.turn_right_by(aggressiveness as f64);
+                        self.turn_right(delta_t_s);
                     } else {
                         self.changing_lane = false;
                     }
@@ -437,6 +437,13 @@ impl Car {
                 }
             }
         }
+
+		let angular_velocity = (self.motion.velocity / 2.85) * self.motion.steering_angle.to_radians().tan();
+		self.position.angle += (angular_velocity * 2.0 * delta_t_s) as f64;
+
+		if !self.dummy {
+			println!("angle: {:.3}, steering angle: {:.3}, velocity: {:.3}", self.position.angle, self.motion.steering_angle, self.motion.velocity);
+		}
 
         self.position.x +=
             self.position.angle.to_radians().sin() as f32 * units::m_to_px(self.motion.velocity * delta_t_s);
@@ -457,13 +464,38 @@ impl Car {
         self.brain = None;
     }
 
-    fn turn_left_by(&mut self, amount: f64) {
-        self.position.angle -= amount / 3.6;
+    fn turn_left(&mut self, delta_t_s: f32) {
+        // self.position.angle -= amount / 3.6;
+		let factor = if self.motion.steering_angle > self.motion.steering_max_angle / 2.0 { 2.0 } else { 1.0 };
+		self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s * factor;
+		if self.motion.steering_angle < -self.motion.steering_max_angle {
+			self.motion.steering_angle = -self.motion.steering_max_angle
+		}
     }
 
-    fn turn_right_by(&mut self, amount: f64) {
-        self.position.angle += amount / 3.6;
+    fn turn_right(&mut self, delta_t_s: f32) {
+        // self.position.angle += amount / 3.6;
+		let factor = if self.motion.steering_angle < -self.motion.steering_max_angle / 2.0 { 2.0 } else { 1.0 };
+		self.motion.steering_angle += self.motion.steering_velocity * delta_t_s * factor;
+		if self.motion.steering_angle > self.motion.steering_max_angle {
+			self.motion.steering_angle = self.motion.steering_max_angle
+		}
     }
+
+	fn normalize_steering(&mut self, delta_t_s: f32) {
+		let factor = lerpf32(0.2, 0.8, self.motion.velocity / self.motion.max_velocity);
+		if !self.dummy {
+			// println!("{}", lerpf32(0.5, 0.9, self.motion.velocity / self.motion.max_velocity));
+		}
+		if self.motion.steering_angle > 0.0 {
+			self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s * factor;
+		} else if self.motion.steering_angle < 0.0 {
+			self.motion.steering_angle += self.motion.steering_velocity * delta_t_s * factor;
+		}
+		if self.motion.steering_angle < 1.0 && self.motion.steering_angle > -1.0 {
+			self.motion.steering_angle = 0.0
+		}
+	}
 
     fn normalize_angle(&mut self) {
         self.position.angle %= 360.0;
@@ -484,7 +516,12 @@ impl Car {
     }
 
     fn apply_friction(&mut self, delta_t_s: f32) {
-        self.motion.velocity *= 1.0 - self.motion.friction_coefficient * (delta_t_s * 13.34);
+        let next = self.motion.velocity * (1.0 - self.motion.friction_coefficient * (delta_t_s * 11.34));
+		self.motion.velocity = if next > 0.0 {
+			next.max(0.1) - 0.1
+		} else {
+			next.min(-0.1) + 0.1
+		}
     }
 }
 
@@ -525,14 +562,23 @@ pub struct Motion {
     pub acceleration: f32,
     /// in percentage
     pub friction_coefficient: f32,
+	/// in degrees
+	pub steering_angle: f32,
+	/// in degrees
+	pub steering_max_angle: f32,
+	/// in degrees per second
+	pub steering_velocity: f32
 }
 impl Motion {
-    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction_coefficient: f32) -> Self {
+    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction_coefficient: f32, steering_max_angle: f32, steering_velocity: f32) -> Self {
         Self {
             velocity,
             max_velocity,
             acceleration,
             friction_coefficient,
+			steering_angle: 0.0,
+			steering_max_angle,
+			steering_velocity
         }
     }
 }
