@@ -1,9 +1,7 @@
 use network::NeuralNetwork;
 use rand::Rng;
 use rayon::{prelude::*, ThreadPoolBuilder};
-use sdl2::{
-    event::Event, keyboard::Keycode, pixels::Color, rect::Rect
-};
+use sdl2::{event::Event, keyboard::Keycode, pixels::Color, rect::Rect};
 use std::time::{Duration, Instant};
 
 mod car;
@@ -28,17 +26,17 @@ fn main() -> Result<(), String> {
     let video_subsystem = sdl_context.video()?;
     let w_width = 1080;
     let w_height = 800;
-	let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string())?;
+    let ttf_context = sdl2::ttf::init().map_err(|e| e.to_string())?;
     let window = video_subsystem
         .window("AI Car", w_width, w_height)
         .position(100, 100)
         .build()
         .map_err(|e| e.to_string())?;
 
-    let use_controlled_car = true;
-    let amount_cars = 0;
-    let traffic_size = 2;
-    let traffic_min_velocity = 22.7777; // 82 km/h
+    let use_controlled_car = false;
+    let amount_cars = 2000;
+    let traffic_size = 4;
+    let traffic_min_velocity = 27.33; // ~98 km/h
     let mut canvas = window.into_canvas().build().map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
@@ -71,7 +69,7 @@ fn main() -> Result<(), String> {
     let mut max_score_idx: usize = 1;
     let mut best_brain = ai_cars.get(min_y_idx).and_then(|c| c.brain.clone());
     let mut sec_best_brain = ai_cars.get(max_score_idx).and_then(|c| c.brain.clone());
-    let mut cars_alive = ai_cars.len() as i32;
+    // let mut cars_alive = ai_cars.len() as i32;
 
     let mut textures = Vec::new();
     let mut traffic = generate_traffic(
@@ -90,18 +88,7 @@ fn main() -> Result<(), String> {
     let mut previous_time = Instant::now();
     let mut current_second = 0.0;
     let mut frame_count = 0;
-	let font = ttf_context.load_font("./assets/fonts/RedHatDisplay-Regular.ttf", 28)?;
-
-	let txt_surface = font
-        .render("Hello Rust!")
-        .blended(Color::RGBA(255, 0, 0, 255))
-        .map_err(|e| e.to_string())?;
-    let txt_texture = texture_creator
-        .create_texture_from_surface(&txt_surface)
-        .map_err(|e| e.to_string())?;
-
-	let (txt_width, txt_height) = txt_surface.size();
-    let txt_target = Rect::new(64, 64, txt_width, txt_height);
+    let font = ttf_context.load_font("./assets/fonts/RedHatDisplay-Regular.ttf", 28)?;
 
     'running: loop {
         let current_time = Instant::now();
@@ -133,7 +120,7 @@ fn main() -> Result<(), String> {
                         let focused_car = &mut ai_cars[min_y_idx];
                         focused_car.damaged = true;
                         focused_car.score = -1000;
-                        cars_alive -= 1;
+                        // cars_alive -= 1;
                     }
                 }
                 _ => {}
@@ -238,46 +225,16 @@ fn main() -> Result<(), String> {
         });
 
         for car in ai_cars.iter_mut() {
-            // car.update(camera_y_offset, &road, &traffic);
-            if car.did_just_crashed {
-                cars_alive -= 1;
-                car.did_just_crashed = false;
+            let over_bottom_bound = car.is_passed_bottom_bound(w_height as i32, camera_y_offset);
+            if car.did_just_crashed || over_bottom_bound {
+                let rand = rand::thread_rng().gen_range(0.0..1.0);
+                let ref_brain = if rand < 0.5 {
+                    best_brain.as_ref()
+                } else {
+                    sec_best_brain.as_ref()
+                };
+                car.reset(min_y as f32 + w_height as f32 * 0.22, &road, ref_brain);
             }
-            if car.is_passed_bottom_bound(w_height as i32, camera_y_offset) {
-                if !car.damaged {
-                    car.damaged = true;
-                    cars_alive -= 1;
-                }
-            }
-        }
-
-        if cars_alive <= 0 && !use_controlled_car && ai_cars.len() > 0 {
-            best_brain.as_ref().map(|b| {
-                b.save_as_file("brains/best.json")
-                    .expect("failed to save network");
-            });
-
-            sec_best_brain.as_ref().map(|b| {
-                b.save_as_file("brains/second_best.json")
-                    .expect("failed to save network");
-            });
-
-            ai_cars = generate_ai_cars(
-                amount_cars,
-                &road,
-                best_brain.clone(),
-                sec_best_brain.clone(),
-                &focused_texture,
-            );
-            cars_alive = ai_cars.len() as i32;
-            traffic = generate_traffic(
-                traffic_size,
-                traffic_min_velocity,
-                w_height as i32,
-                &road,
-                &texture_pool,
-                &mut textures,
-            );
         }
         if use_controlled_car {
             controlled_car.render(
@@ -291,7 +248,33 @@ fn main() -> Result<(), String> {
             controlled_car.update(delta_t_s, camera_y_offset, &road, &vec![], &mut 1);
         }
 
-	    canvas.copy(&txt_texture, None, Some(txt_target))?;
+		let txt_content = format!("#1 score = {}", ai_cars[min_y_idx].score);
+        let txt_surface = font
+            .render(&txt_content)
+            .blended(Color::RGBA(255, 0, 0, 255))
+            .map_err(|e| e.to_string())?;
+        let txt_texture = texture_creator
+            .create_texture_from_surface(&txt_surface)
+            .map_err(|e| e.to_string())?;
+
+        let (txt_width, txt_height) = txt_surface.size();
+        let txt_target = Rect::new(64, 64, txt_width, txt_height);
+
+        canvas.copy(&txt_texture, None, Some(txt_target))?;
+
+		let txt_content2 = format!("#2 score = {}", ai_cars[max_score_idx].score);
+        let txt_surface2 = font
+            .render(&txt_content2)
+            .blended(Color::RGBA(255, 0, 0, 255))
+            .map_err(|e| e.to_string())?;
+        let txt_texture2 = texture_creator
+            .create_texture_from_surface(&txt_surface2)
+            .map_err(|e| e.to_string())?;
+
+        let (txt_width, txt_height) = txt_surface2.size();
+        let txt_target = Rect::new(64, 64 + txt_height as i32 + 12, txt_width, txt_height);
+
+        canvas.copy(&txt_texture2, None, Some(txt_target))?;
 
         canvas.present();
         frame_count += 1;
@@ -300,15 +283,16 @@ fn main() -> Result<(), String> {
         if frame_duration < target_frame_time {
             std::thread::sleep(target_frame_time - frame_duration);
         }
-        // while current_time.elapsed() < target_frame_time {}
-
-        // println!("cars alive: {}", cars_alive);
     }
     best_brain.map(|b| {
         b.save_as_file("brains/best.json")
             .expect("failed to save network");
     });
-    println!("out of loop: saved network");
+    sec_best_brain.map(|b| {
+        b.save_as_file("brains/second_best.json")
+            .expect("failed to save network");
+    });
+    println!("out of loop: saved networks");
 
     Ok(())
 }
@@ -354,7 +338,7 @@ fn generate_traffic<'a>(
         let lane_idx = road.random_lane_idx();
         car = Car::new(lane_idx, fc.width, fc.height, None, 0.0);
         let max_velocity = rand::thread_rng().gen_range(min_velocity..min_velocity + 4.0); // 4.0 m/s ≃ 15 km/h
-        // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
+                                                                                           // let start_y = rand::thread_rng().gen_range((h as f32 * 0.5)..(h as f32 * 1.5));
         let y_step = rand::thread_rng().gen_range(1..6);
         let start_y = h as f32 + y_step as f32 * 3.0;
         car.src_crop_center(194, 380, 0.3);

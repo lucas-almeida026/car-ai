@@ -108,6 +108,16 @@ impl Road {
 	pub fn random_lane_idx(&self) -> u32 {
 		rand::thread_rng().gen_range(0..(self.lanes as u32))
 	}
+
+	pub fn is_close_to_lane_center(&self, x: f32, tolerance: f32) -> bool {
+		for i in 0..self.lanes {
+			let lane_center = self.lane_center(i as u32).unwrap() - tolerance + 3.0;
+			if (x - lane_center).abs() < tolerance / 2.0 {
+				return true;
+			}
+		}
+		false
+	}
 }
 
 pub struct Border {

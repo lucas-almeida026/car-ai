@@ -33,7 +33,8 @@ pub struct Car {
     current_lane: u32,
     hitbox: Vec<Point>,
     sensor_readings: Vec<f32>,
-    pub did_just_crashed: bool
+    pub did_just_crashed: bool,
+    close_to_lane_center: bool,
 }
 
 impl Car {
@@ -98,7 +99,8 @@ impl Car {
             break_checking_frame_count: 0,
             hitbox: vec![],
             sensor_readings: vec![0.0; total_sensors as usize],
-            did_just_crashed: false
+            did_just_crashed: false,
+            close_to_lane_center: true,
         }
     }
 
@@ -145,9 +147,45 @@ impl Car {
         y - scaled_h > (h as f32)
     }
 
+    pub fn reset(&mut self, y: f32, road: &Road, ref_brain: Option<&NeuralNetwork>) {
+        let lane = road.random_lane_idx();
+        self.damaged = false;
+        self.did_just_crashed = false;
+        self.score = 0;
+
+        self.current_lane = lane;
+        self.target_lane = lane;
+        self.set_in_lane(road, lane).unwrap();
+        self.position.y = y;
+        self.position.angle = 0.0;
+
+        self.controls = Controls::new();
+        self.controls.forward = true;
+        self.motion.velocity = self.motion.max_velocity * 0.75;
+        self.motion.steering_angle = 0.0;
+        if self.brain.is_some() && ref_brain.is_some() {
+            let rand = rand::thread_rng().gen_range(1..5);
+            let t = if rand == 1 { 0.5 } else { 0.92 };
+            self.brain.as_mut().unwrap().randomize();
+			self.brain.as_mut().unwrap().prune(ref_brain.unwrap(), t);
+        }
+    }
+
     pub fn update(&mut self, delta_t_s: f32, offset: f32, road: &Road, traffic: &Vec<Car>) {
-        if !self.damaged {
+        if !self.damaged && !self.dummy {
             self.score += 1;
+            if self.position.angle < 20.0 || self.position.angle > 340.0 {
+                self.score += 1;
+            }
+
+            self.close_to_lane_center = road.is_close_to_lane_center(
+                self.position.x,
+                self.dimentions.w as f32 / 2.0,
+            );
+
+            if self.close_to_lane_center {
+                self.score += 3;
+            }
         }
         self.hitbox = self.rotate_hitbox_points(offset);
 
@@ -211,7 +249,6 @@ impl Car {
                 );
                 self.sensor_readings.append(&mut r.clone());
             }
-            self.score += 1;
         }
 
         if self.brain.is_some() && !self.damaged {
@@ -252,7 +289,11 @@ impl Car {
             drawing_texture = damaged_texture;
             canvas.set_draw_color(Color::RGB(255, 12, 255));
         } else {
-            canvas.set_draw_color(Color::RGB(12, 0, 255));
+            if self.close_to_lane_center {
+                canvas.set_draw_color(Color::RGB(12, 255, 255));
+            } else {
+                canvas.set_draw_color(Color::RGB(12, 0, 255));
+            }
         }
 
         let dst_rect = FRect::new(
@@ -369,36 +410,32 @@ impl Car {
         if self.controls.forward {
             self.motion.velocity += self.motion.acceleration * delta_t_s * 11.34;
         } else if self.controls.backward {
-			self.motion.velocity -= (self.motion.acceleration / 1.5) * delta_t_s * 11.34;
+            self.motion.velocity -= (self.motion.acceleration / 1.5) * delta_t_s * 11.34;
         } else {
-			self.apply_friction(delta_t_s);
-		}
+            self.apply_friction(delta_t_s);
+        }
         self.normalize_velocity();
 
-        if (self.motion.velocity > 0.1 || self.motion.velocity < -0.1) && !self.controls.left && !self.controls.right {
+        if (self.motion.velocity > 0.1 || self.motion.velocity < -0.1)
+            && !self.controls.left
+            && !self.controls.right
+        {
             self.normalize_steering(delta_t_s);
         }
-		if self.controls.left {
-			self.turn_left(delta_t_s);
-		} else if self.controls.right {
-			self.turn_right(delta_t_s);
-		}
+        if self.controls.left {
+            self.turn_left(delta_t_s);
+        } else if self.controls.right {
+            self.turn_right(delta_t_s);
+        }
         self.normalize_angle();
 
         if self.dummy {
-            // let rand_num = rand::thread_rng().gen_range(1..60 * 6);
-            // if rand_num == 1 && !self.changing_lane{
-            //     self.motion.velocity /= 1.4;
-            // } else if rand_num > 60 * 6 - 30 {
-            //     self.motion.velocity = self.motion.max_velocity - 0.01;
-            // }
-
             if !self.break_checking {
                 let should_break_check = rand::thread_rng().gen_range(1..60 * 4) == 1;
-                if should_break_check {
+                if should_break_check && !self.changing_lane {
                     self.break_checking = true;
-                    self.motion.velocity /= 1.3;
-                    self.break_checking_frame_count = 40;
+                    self.motion.velocity /= 1.2;
+                    self.break_checking_frame_count = 36;
                 }
             } else {
                 if self.break_checking_frame_count == 0 {
@@ -410,15 +447,17 @@ impl Car {
             }
 
             if !self.changing_lane {
-                let should_change_lane = rand::thread_rng().gen_range(1..60 * 4) == 1;
-                if should_change_lane {
+                let should_change_lane = rand::thread_rng().gen_range(1..60 * 6) == 1;
+                if should_change_lane && !self.break_checking {
                     self.changing_lane = true;
                     self.target_lane = road.random_lane_idx();
-                    let aggressiveness = rand::thread_rng().gen_range(5..10);
-					self.motion.steering_velocity = aggressiveness as f32;
+                    // let aggressiveness = rand::thread_rng().gen_range(5..7);
+                    // self.motion.steering_angle = aggressiveness as f32;
                     if self.current_lane > self.target_lane {
+                        self.motion.steering_angle = -self.motion.steering_max_angle * 0.33;
                         self.turn_left(delta_t_s);
                     } else if self.current_lane < self.target_lane {
+                        self.motion.steering_angle = self.motion.steering_max_angle * 0.33;
                         self.turn_right(delta_t_s);
                     } else {
                         self.changing_lane = false;
@@ -434,22 +473,20 @@ impl Car {
                     self.position.angle = 0.0;
                     self.changing_lane = false;
                     self.current_lane = self.target_lane;
+                    self.motion.steering_angle = 0.0;
                 }
             }
         }
 
-		let angular_velocity = (self.motion.velocity / 2.85) * self.motion.steering_angle.to_radians().tan();
-		self.position.angle += (angular_velocity * 2.0 * delta_t_s) as f64;
+        let axes_distance = 2.85;
+        let angular_velocity =
+            (self.motion.velocity / axes_distance) * self.motion.steering_angle.to_radians().tan();
+        self.position.angle += (angular_velocity * axes_distance * delta_t_s) as f64;
 
-		if !self.dummy {
-			println!("angle: {:.3}, steering angle: {:.3}, velocity: {:.3}", self.position.angle, self.motion.steering_angle, self.motion.velocity);
-		}
-
-        self.position.x +=
-            self.position.angle.to_radians().sin() as f32 * units::m_to_px(self.motion.velocity * delta_t_s);
-        self.position.y -=
-            self.position.angle.to_radians().cos() as f32 * units::m_to_px(self.motion.velocity * delta_t_s);
-        //self.position.y -= 1.6
+        self.position.x += self.position.angle.to_radians().sin() as f32
+            * units::m_to_px(self.motion.velocity * delta_t_s);
+        self.position.y -= self.position.angle.to_radians().cos() as f32
+            * units::m_to_px(self.motion.velocity * delta_t_s);
     }
 
     pub fn as_dummy(&mut self, max_velocity: f32) {
@@ -465,37 +502,30 @@ impl Car {
     }
 
     fn turn_left(&mut self, delta_t_s: f32) {
-        // self.position.angle -= amount / 3.6;
-		let factor = if self.motion.steering_angle > self.motion.steering_max_angle / 2.0 { 2.0 } else { 1.0 };
-		self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s * factor;
-		if self.motion.steering_angle < -self.motion.steering_max_angle {
-			self.motion.steering_angle = -self.motion.steering_max_angle
-		}
+        self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s;
+        if self.motion.steering_angle < -self.motion.steering_max_angle {
+            self.motion.steering_angle = -self.motion.steering_max_angle
+        }
     }
 
     fn turn_right(&mut self, delta_t_s: f32) {
-        // self.position.angle += amount / 3.6;
-		let factor = if self.motion.steering_angle < -self.motion.steering_max_angle / 2.0 { 2.0 } else { 1.0 };
-		self.motion.steering_angle += self.motion.steering_velocity * delta_t_s * factor;
-		if self.motion.steering_angle > self.motion.steering_max_angle {
-			self.motion.steering_angle = self.motion.steering_max_angle
-		}
+        self.motion.steering_angle += self.motion.steering_velocity * delta_t_s;
+        if self.motion.steering_angle > self.motion.steering_max_angle {
+            self.motion.steering_angle = self.motion.steering_max_angle
+        }
     }
 
-	fn normalize_steering(&mut self, delta_t_s: f32) {
-		let factor = lerpf32(0.2, 0.8, self.motion.velocity / self.motion.max_velocity);
-		if !self.dummy {
-			// println!("{}", lerpf32(0.5, 0.9, self.motion.velocity / self.motion.max_velocity));
-		}
-		if self.motion.steering_angle > 0.0 {
-			self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s * factor;
-		} else if self.motion.steering_angle < 0.0 {
-			self.motion.steering_angle += self.motion.steering_velocity * delta_t_s * factor;
-		}
-		if self.motion.steering_angle < 1.0 && self.motion.steering_angle > -1.0 {
-			self.motion.steering_angle = 0.0
-		}
-	}
+    fn normalize_steering(&mut self, delta_t_s: f32) {
+        let factor = lerpf32(0.2, 0.8, self.motion.velocity / self.motion.max_velocity);
+        if self.motion.steering_angle > 0.0 {
+            self.motion.steering_angle -= self.motion.steering_velocity * delta_t_s * factor;
+        } else if self.motion.steering_angle < 0.0 {
+            self.motion.steering_angle += self.motion.steering_velocity * delta_t_s * factor;
+        }
+        if self.motion.steering_angle < 1.0 && self.motion.steering_angle > -1.0 {
+            self.motion.steering_angle = 0.0
+        }
+    }
 
     fn normalize_angle(&mut self) {
         self.position.angle %= 360.0;
@@ -516,12 +546,13 @@ impl Car {
     }
 
     fn apply_friction(&mut self, delta_t_s: f32) {
-        let next = self.motion.velocity * (1.0 - self.motion.friction_coefficient * (delta_t_s * 11.34));
-		self.motion.velocity = if next > 0.0 {
-			next.max(0.1) - 0.1
-		} else {
-			next.min(-0.1) + 0.1
-		}
+        let next =
+            self.motion.velocity * (1.0 - self.motion.friction_coefficient * (delta_t_s * 11.34));
+        self.motion.velocity = if next > 0.0 {
+            next.max(0.1) - 0.1
+        } else {
+            next.min(-0.1) + 0.1
+        }
     }
 }
 
@@ -562,23 +593,30 @@ pub struct Motion {
     pub acceleration: f32,
     /// in percentage
     pub friction_coefficient: f32,
-	/// in degrees
-	pub steering_angle: f32,
-	/// in degrees
-	pub steering_max_angle: f32,
-	/// in degrees per second
-	pub steering_velocity: f32
+    /// in degrees
+    pub steering_angle: f32,
+    /// in degrees
+    pub steering_max_angle: f32,
+    /// in degrees per second
+    pub steering_velocity: f32,
 }
 impl Motion {
-    pub fn new(velocity: f32, max_velocity: f32, acceleration: f32, friction_coefficient: f32, steering_max_angle: f32, steering_velocity: f32) -> Self {
+    pub fn new(
+        velocity: f32,
+        max_velocity: f32,
+        acceleration: f32,
+        friction_coefficient: f32,
+        steering_max_angle: f32,
+        steering_velocity: f32,
+    ) -> Self {
         Self {
             velocity,
             max_velocity,
             acceleration,
             friction_coefficient,
-			steering_angle: 0.0,
-			steering_max_angle,
-			steering_velocity
+            steering_angle: 0.0,
+            steering_max_angle,
+            steering_velocity,
         }
     }
 }
