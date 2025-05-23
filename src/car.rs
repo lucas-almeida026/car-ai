@@ -226,7 +226,7 @@ impl Car {
                 }
             }
 
-            if touches.len() > 0 {
+            if !touches.is_empty() {
                 if !self.damaged {
                     self.did_just_crashed = true;
                 }
@@ -245,7 +245,7 @@ impl Car {
                     self.position.angle,
                     offset,
                     &road.borders,
-                    &traffic,
+                    traffic,
                 );
                 self.sensor_readings.append(&mut r.clone());
             }
@@ -288,17 +288,15 @@ impl Car {
         if self.damaged {
             drawing_texture = damaged_texture;
             canvas.set_draw_color(Color::RGB(255, 12, 255));
+        } else if self.close_to_lane_center {
+            canvas.set_draw_color(Color::RGB(12, 255, 255));
         } else {
-            if self.close_to_lane_center {
-                canvas.set_draw_color(Color::RGB(12, 255, 255));
-            } else {
-                canvas.set_draw_color(Color::RGB(12, 0, 255));
-            }
+            canvas.set_draw_color(Color::RGB(12, 0, 255));
         }
 
         let dst_rect = FRect::new(
             self.position.x,
-            self.position.y as f32 - offset,
+            self.position.y - offset,
             scaled_w,
             scaled_h,
         );
@@ -367,7 +365,7 @@ impl Car {
         let back_y = h * 0.3;
         let back_w = w * 0.55;
 
-        let points = [
+        [
             (-(w - side_w) / 2.0, -(h - side_y) / 2.0),
             (-(w - front_w) / 2.0, -(h - front_y) / 2.0),
             (-(w - corner_w) / 2.0, -(h - corner_y) / 2.0),
@@ -378,9 +376,7 @@ impl Car {
             ((w - back_w) / 2.0, (h - side_w) / 2.0),
             (-(w - back_w) / 2.0, (h - side_w) / 2.0),
             (-(w - side_w) / 2.0, (h - back_y) / 2.0),
-        ];
-
-        points
+        ]
     }
 
     pub fn hitbox(&self) -> &Vec<Point> {
@@ -437,13 +433,11 @@ impl Car {
                     self.motion.velocity /= 1.2;
                     self.break_checking_frame_count = 36;
                 }
+            } else if self.break_checking_frame_count == 0 {
+                self.break_checking = false;
+                self.motion.velocity = self.motion.max_velocity - 0.01;
             } else {
-                if self.break_checking_frame_count == 0 {
-                    self.break_checking = false;
-                    self.motion.velocity = self.motion.max_velocity - 0.01;
-                } else {
-                    self.break_checking_frame_count -= 1;
-                }
+                self.break_checking_frame_count -= 1;
             }
 
             if !self.changing_lane {
